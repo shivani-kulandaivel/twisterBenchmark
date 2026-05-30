@@ -1,17 +1,61 @@
 {
   "schema_version": "1",
-  "domain_id": "your-domain-uuid",
+  "domain_id": "twister-body",
   "binding_vow_version": "1.0.0",
   "visibility": "gallery_public",
   "replay": {
-    "episode-uuid": [
+    "episode-example-uuid": [
       {
         "step": 1,
-        "observation": { "question": "Example prompt for your UI" },
-        "reasoning": "Two signals. The model explains its thinking in plain text — style this in your showcase.",
-        "action": "buy",
-        "reward": 0.0,
+        "observation": {
+          "phase": 1,
+          "command": {
+            "limb": "left_hand",
+            "color": "green",
+            "circle": [2, 3],
+            "instruction": "Place left hand on green"
+          },
+          "target_circle": { "row": 2, "col": 3, "color": "green", "x": 0.0, "y": 0.0 },
+          "joints": { "left_shoulder_pitch": 0.0, "left_elbow": 10.0 },
+          "end_effectors": {
+            "left_hand": { "x": 0.32, "y": 0.0, "z": 1.1, "on_mat": false }
+          },
+          "mat": { "rows": 4, "cols": 6, "row_colors": ["red", "yellow", "green", "blue"] },
+          "locked_limbs": [],
+          "turn": 1,
+          "upright": true,
+          "placement_error": 0.42,
+          "placement_radius": 0.08
+        },
+        "reasoning": "Green target is slightly forward-left. I'll raise the left arm by increasing shoulder pitch and extend the elbow toward the mat.",
+        "action": {
+          "joint_targets": {
+            "left_shoulder_pitch": 55.0,
+            "left_shoulder_roll": -25.0,
+            "left_elbow": 75.0,
+            "abdomen_pitch": 10.0
+          }
+        },
+        "reward": 0.16,
         "terminated": false
+      },
+      {
+        "step": 2,
+        "observation": {
+          "phase": 1,
+          "command": {
+            "limb": "left_hand",
+            "color": "green",
+            "circle": [2, 3],
+            "instruction": "Place left hand on green"
+          },
+          "placement_error": 0.05,
+          "upright": true
+        },
+        "reasoning": "Hand is within placement radius while torso remains upright.",
+        "action": { "joint_targets": { "left_elbow": 80.0 } },
+        "reward": 1.0,
+        "terminated": true
       }
     ]
   }

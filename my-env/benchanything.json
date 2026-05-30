@@ -1,39 +1,39 @@
 {
-  "id": "my-env",
+  "id": "twister-body",
   "adapter": "adapter.py",
-  "name": "My Environment",
-  "description": "One-sentence description of what this benchmark evaluates.",
+  "name": "Twister Body Control",
+  "description": "Benchmarks how well an AI can operate a human body in MuJoCo to play Twister via position-controlled joint angles.",
 
   "binding_vow": {
     "version": "1.0.0",
     "tier": "tier1",
-    "description": "Longer description of the task and what makes a good agent.",
+    "description": "Control a 3D humanoid rig in a physics simulator using target joint angles (degrees). Phase 1: place one limb on a spinner-assigned colored circle. Phase 2: survive multiple turns while keeping locked limbs in place. Falls and slipped placements end the episode.",
 
     "observation_space": {
       "type": "json",
-      "description": "{ \"question\": string }"
+      "description": "{ phase, command: { limb, color, circle, instruction }, target_circle, joints, joint_targets, end_effectors, mat, locked_limbs, turn, upright, torso, placement_error? }"
     },
 
     "action_space": {
-      "type": "text",
-      "description": "Free-text answer from the agent"
+      "type": "json",
+      "description": "{ \"joint_targets\": { \"left_elbow\": 90.0, ... }, \"delta\": false } — absolute target angles in degrees (Option B position control)"
     },
 
     "reward": {
-      "type": "binary",
-      "range": { "low": 0.0, "high": 1.0 },
-      "description": "1.0 if correct, 0.0 otherwise"
+      "type": "continuous",
+      "range": { "low": 0.0, "high": 2.0 },
+      "description": "Phase 1: 1.0 on valid placement while upright, partial credit by distance otherwise. Phase 2: +1.5 per completed turn, partial credit while attempting placement."
     },
 
     "episode": {
-      "max_steps": 10,
+      "max_steps": 200,
       "deterministic_reset": true,
       "supports_seed": true,
       "parallel_episodes": 1,
       "observability": "full"
     },
 
-    "techniques": []
+    "techniques": ["json_actions", "embodied_control", "spatial_reasoning"]
   },
 
   "scoring": {
@@ -43,7 +43,22 @@
       {
         "name": "accuracy",
         "type": "episode_reward",
-        "aggregation": "pass_rate"
+        "aggregation": "pass_rate",
+        "description": "Phase 1 pass rate (reward >= 1.0)"
+      },
+      {
+        "name": "turns_survived",
+        "type": "info_field",
+        "field": "turns_survived",
+        "aggregation": "mean",
+        "description": "Phase 2 mean turns completed before fall or timeout"
+      },
+      {
+        "name": "avg_placement_error",
+        "type": "info_field",
+        "field": "avg_placement_error",
+        "aggregation": "mean",
+        "description": "Mean horizontal distance to target circle (meters)"
       }
     ]
   }

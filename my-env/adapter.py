@@ -17,5 +17,5 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
 
-    print(f"MyEnv adapter → http://{args.host}:{args.port}")
+    print(f"TwisterEnv adapter -> http://{args.host}:{args.port}")
     serve(MyEnv, host=args.host, port=args.port)

@@ -20,7 +20,7 @@
     },
 
     "reward": {
-      "type": "continuous",
+      "type": "scalar",
       "range": { "low": 0.0, "high": 2.0 },
       "description": "Phase 1: 1.0 on valid placement while upright, partial credit by distance otherwise. Phase 2: +1.5 per completed turn, partial credit while attempting placement."
     },
@@ -33,7 +33,7 @@
       "observability": "full"
     },
 
-    "techniques": ["json_actions", "embodied_control", "spatial_reasoning"]
+    "techniques": []
   },
 
   "scoring": {
@@ -48,17 +48,15 @@
       },
       {
         "name": "turns_survived",
-        "type": "info_field",
+        "type": "terminal_field",
         "field": "turns_survived",
-        "aggregation": "mean",
-        "description": "Phase 2 mean turns completed before fall or timeout"
+        "aggregation": "mean"
       },
       {
         "name": "avg_placement_error",
-        "type": "info_field",
+        "type": "terminal_field",
         "field": "avg_placement_error",
-        "aggregation": "mean",
-        "description": "Mean horizontal distance to target circle (meters)"
+        "aggregation": "mean"
       }
     ]
   }

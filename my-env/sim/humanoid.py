@@ -7,18 +7,27 @@ from pathlib import Path
 from typing import Any
 
 import mujoco
+import numpy as np
 
 from sim.constants import (
+    BALANCE_COM_KD,
+    BALANCE_COM_KP,
+    BALANCE_F_MAX,
+    BALANCE_ROT_KD,
+    BALANCE_ROT_KP,
+    BALANCE_T_MAX,
     END_EFFECTOR_SITES,
     JOINT_SCHEMA,
     MAX_TORSO_TILT_DEG,
     MIN_TORSO_HEIGHT,
     PHYSICS_SUBSTEPS,
     PHYSICS_TIMESTEP,
+    SMOOTH_MAX_DELTA_DEG,
     TORSO_BODY,
 )
 
 _MJCF_PATH = Path(__file__).parent / "mjcf" / "humanoid_twister.xml"
+_Z_WORLD = np.array([0.0, 0.0, 1.0])
 
 
 class HumanoidSim:
@@ -48,6 +57,7 @@ class HumanoidSim:
             for limb, site in END_EFFECTOR_SITES.items()
         }
         self._torso_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, TORSO_BODY)
+        self._pelvis_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "pelvis")
 
         root_joint = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "root")
         if root_joint < 0:
@@ -59,10 +69,28 @@ class HumanoidSim:
             mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, name)
             for name in ("left_foot_geom", "right_foot_geom")
         ]
+        self._floor_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+        # Bodies whose contact with the floor counts as a collapse (NOT feet,
+        # NOT forearms/hands — those are legal contact points in Twister).
+        _collapse_bodies = (
+            "pelvis", "torso", "head",
+            "left_thigh", "right_thigh", "left_shin", "right_shin",
+            "left_upper_arm", "right_upper_arm",
+        )
+        self._collapse_body_ids = {
+            mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, b) for b in _collapse_bodies
+        }
 
         self._targets: dict[str, float] = {
             name: spec["neutral"] for name, spec in JOINT_SCHEMA.items()
         }
+        self._foot_site_to_geom = {
+            "left_foot": self._foot_geom_ids[0],
+            "right_foot": self._foot_geom_ids[1],
+        }
+        self._active_reach_limb: str | None = None
+        self._lean_bias = (0.0, 0.0)
+        self._support_override_xy: list[tuple[float, float]] | None = None
 
     def reset(self, seed: int | None = None) -> None:
         del seed
@@ -74,7 +102,7 @@ class HumanoidSim:
 
         for name, spec in JOINT_SCHEMA.items():
             idx = self._joint_qpos_idx[name]
-            self.data.qpos[idx] = spec["neutral"]
+            self.data.qpos[idx] = math.radians(spec["neutral"])
             self._targets[name] = spec["neutral"]
 
         self._snap_feet_to_ground()
@@ -116,36 +144,124 @@ class HumanoidSim:
                 value = current + delta_val
             self._targets[name] = self.clamp_joint(name, float(value))
 
+    def set_targets_smooth(self, joint_targets: dict[str, float]) -> None:
+        """Set absolute targets with per-substep rate limiting during physics."""
+        self._pending_targets = {
+            name: self.clamp_joint(name, float(val)) for name, val in joint_targets.items()
+        }
+
+    def _advance_smooth_targets(self) -> None:
+        pending = getattr(self, "_pending_targets", None)
+        if not pending:
+            return
+        done = True
+        for name, goal in pending.items():
+            current = self._targets[name]
+            step = max(-SMOOTH_MAX_DELTA_DEG, min(SMOOTH_MAX_DELTA_DEG, goal - current))
+            self._targets[name] = current + step
+            if abs(goal - self._targets[name]) > 0.05:
+                done = False
+        if done:
+            self._pending_targets = None
+
     def step_physics(self, substeps: int = PHYSICS_SUBSTEPS) -> None:
         for _ in range(substeps):
+            self._advance_smooth_targets()
             self._apply_targets()
+            self._apply_balance_assist()
             mujoco.mj_step(self.model, self.data)
 
-    def _postural_tilt_deg(self) -> tuple[float, float]:
-        up = self.data.xmat[self._torso_id].reshape(3, 3)[:, 2]
-        pitch = math.degrees(math.asin(max(-1.0, min(1.0, float(up[0])))))
-        roll = math.degrees(math.asin(max(-1.0, min(1.0, float(up[1])))))
-        return pitch, roll
-
-    def _stabilize(self, name: str, target: float, pitch: float, roll: float) -> float:
-        if name == "abdomen_pitch":
-            return self.clamp_joint(name, target - pitch * 0.85)
-        if name in ("left_hip_pitch", "right_hip_pitch"):
-            return self.clamp_joint(name, target - pitch * 0.45)
-        if name == "left_hip_roll":
-            return self.clamp_joint(name, target - roll * 0.55)
-        if name == "right_hip_roll":
-            return self.clamp_joint(name, target + roll * 0.55)
-        return target
-
     def _apply_targets(self) -> None:
-        pitch, roll = self._postural_tilt_deg()
+        # Targets are stored in degrees (human-facing); MuJoCo ctrl is radians.
         for name, target in self._targets.items():
-            self.data.ctrl[self._actuator_idx[name]] = self._stabilize(name, target, pitch, roll)
+            self.data.ctrl[self._actuator_idx[name]] = math.radians(target)
+
+    def _apply_balance_assist(self) -> None:
+        """Virtual-model balance: PD force/torque on the pelvis to keep the
+        center of mass over the support polygon and the trunk upright.
+
+        Models the stabilizing role a real player's core and stance muscles
+        provide. Keeps full limb physics while preventing the whole body from
+        toppling — a standard balance-assist / virtual model control technique.
+        """
+        pelvis = self._pelvis_id
+        dof = self._root_qvel_idx
+
+        # --- CoM over support (horizontal PD) ---
+        cx, cy = self.com_xy()
+        sx, sy = self.support_center_xy()
+        com_vx = float(self.data.cvel[pelvis][3])  # linear vel proxy
+        com_vy = float(self.data.cvel[pelvis][4])
+        fx = BALANCE_COM_KP * (sx - cx) - BALANCE_COM_KD * com_vx
+        fy = BALANCE_COM_KP * (sy - cy) - BALANCE_COM_KD * com_vy
+
+        # --- Trunk upright (rotational PD about X and Y) ---
+        up = self.data.xmat[self._pelvis_id].reshape(3, 3)[:, 2]
+        # restoring torque ~ up x z_world
+        rest = np.cross(up, _Z_WORLD)
+        wx = float(self.data.qvel[dof + 3])
+        wy = float(self.data.qvel[dof + 4])
+        tx = BALANCE_ROT_KP * rest[0] - BALANCE_ROT_KD * wx
+        ty = BALANCE_ROT_KP * rest[1] - BALANCE_ROT_KD * wy
+
+        self.data.xfrc_applied[pelvis, 0] = float(np.clip(fx, -BALANCE_F_MAX, BALANCE_F_MAX))
+        self.data.xfrc_applied[pelvis, 1] = float(np.clip(fy, -BALANCE_F_MAX, BALANCE_F_MAX))
+        self.data.xfrc_applied[pelvis, 3] = float(np.clip(tx, -BALANCE_T_MAX, BALANCE_T_MAX))
+        self.data.xfrc_applied[pelvis, 4] = float(np.clip(ty, -BALANCE_T_MAX, BALANCE_T_MAX))
+
+    def com_xy(self) -> tuple[float, float]:
+        """Whole-body center of mass (world XY)."""
+        total = float(self.model.body_mass.sum())
+        cx = float(sum(self.model.body_mass[i] * self.data.subtree_com[i][0] for i in range(self.model.nbody)) / total)
+        cy = float(sum(self.model.body_mass[i] * self.data.subtree_com[i][1] for i in range(self.model.nbody)) / total)
+        return cx, cy
+
+    def set_active_reach(
+        self,
+        limb: str | None,
+        lean_bias: tuple[float, float] = (0.0, 0.0),
+        support_override_xy: list[tuple[float, float]] | None = None,
+    ) -> None:
+        """Tell the balance controller which limb is reaching (so a lifting foot
+        is excluded from the support polygon) and how far to shift weight toward
+        the reach."""
+        self._active_reach_limb = limb
+        self._lean_bias = lean_bias
+        self._support_override_xy = support_override_xy
+
+    def support_center_xy(self) -> tuple[float, float]:
+        """Center of support polygon (world XY).
+
+        Uses planted feet plus any additional end-effectors already grounded
+        (e.g., a locked hand in phase 2). This gives the balance assist a
+        realistic multi-contact support estimate.
+        """
+        if self._support_override_xy:
+            cx = sum(p[0] for p in self._support_override_xy) / len(self._support_override_xy)
+            cy = sum(p[1] for p in self._support_override_xy) / len(self._support_override_xy)
+            return float(cx + self._lean_bias[0]), float(cy + self._lean_bias[1])
+
+        planted = list(self._foot_geom_ids)
+        if self._active_reach_limb in self._foot_site_to_geom:
+            lifting = self._foot_site_to_geom[self._active_reach_limb]
+            planted = [g for g in self._foot_geom_ids if g != lifting]
+
+        pts = [self.data.geom_xpos[gid] for gid in planted]
+        for limb, site_id in self._site_ids.items():
+            if limb.endswith("foot"):
+                continue
+            if limb == self._active_reach_limb:
+                continue
+            pos = self.data.site_xpos[site_id]
+            if float(pos[2]) <= 0.11:
+                pts.append(pos)
+        cx = sum(p[0] for p in pts) / len(pts) + self._lean_bias[0]
+        cy = sum(p[1] for p in pts) / len(pts) + self._lean_bias[1]
+        return float(cx), float(cy)
 
     def get_joint_angles_deg(self) -> dict[str, float]:
         return {
-            name: round(float(self.data.qpos[idx]), 2)
+            name: round(math.degrees(float(self.data.qpos[idx])), 2)
             for name, idx in self._joint_qpos_idx.items()
         }
 
@@ -176,11 +292,32 @@ class HumanoidSim:
         }
 
     def is_upright(self) -> bool:
+        """Kept for observation/back-compat: true while standing tall and level."""
         torso = self.get_torso_state()
         return torso["z"] >= MIN_TORSO_HEIGHT and torso["tilt_deg"] <= MAX_TORSO_TILT_DEG
 
     def has_fallen(self) -> bool:
-        return not self.is_upright()
+        """A Twister 'fall' is a collapse: a non-hand/foot body part touching the
+        mat, the head/pelvis dropping to the floor, or the body tumbling out of
+        control. Bending, crouching, or going on all fours is allowed."""
+        # 1) Collapse contact: a 'core' body geom touches the floor.
+        floor = self._floor_geom_id
+        for c in self.data.contact[: self.data.ncon]:
+            g1, g2 = int(c.geom1), int(c.geom2)
+            if floor not in (g1, g2):
+                continue
+            other = g2 if g1 == floor else g1
+            body = int(self.model.geom_bodyid[other])
+            if body in self._collapse_body_ids:
+                return True
+        # 2) Pelvis/head dropped near the floor (face-plant / sat down hard).
+        if float(self.data.xpos[self._pelvis_id][2]) < 0.35:
+            return True
+        # 3) Tumbling: large angular velocity of the root.
+        wr = self.data.qvel[self._root_qvel_idx + 3 : self._root_qvel_idx + 6]
+        if float(np.linalg.norm(wr)) > 12.0:
+            return True
+        return False
 
     def snapshot(self) -> dict[str, Any]:
         return {

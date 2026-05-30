@@ -183,56 +183,8 @@ def _obs_from_result(result: Any) -> dict[str, Any]:
 
 
 def _naive_action(obs: dict[str, Any]) -> dict[str, Any]:
-    """Heuristic controller — point the commanded limb toward the target circle."""
-    cmd = obs["command"]
-    limb = cmd["limb"]
-    target = obs["target_circle"]
-    ee = obs["end_effectors"][limb]
-    dx = target["x"] - ee["x"]
-    dy = target["y"] - ee["y"]
-    dz = max(0.0, ee["z"] - 0.12)
-
-    side = "left" if limb.startswith("left") else "right"
-    opp = "right" if side == "left" else "left"
-    sign = 1.0 if side == "left" else -1.0
-
-    desired: dict[str, float] = {}
-    reach = min(1.0, (abs(dx) + abs(dy)) / 1.2)
-
-    if limb.endswith("hand"):
-        if abs(dx) > 0.03:
-            desired[f"{side}_shoulder_roll"] = sign * min(18.0, abs(dx) * 14.0) * (1 if dx * sign > 0 else -1)
-        if abs(dy) > 0.03:
-            desired[f"{side}_shoulder_pitch"] = min(16.0, abs(dy) * 12.0) * (1 if dy < 0 else -1)
-        if dz > 0.02:
-            desired[f"{side}_elbow"] = 5.0 + min(25.0, dz * 60.0)
-        if desired:
-            desired[f"{opp}_shoulder_pitch"] = -desired.get(f"{side}_shoulder_pitch", 0.0) * 0.4
-            desired[f"{opp}_shoulder_roll"] = -desired.get(f"{side}_shoulder_roll", 0.0) * 0.4
-            desired[f"{side}_hip_roll"] = -sign * reach * 5.0
-            desired[f"{opp}_hip_roll"] = sign * reach * 3.0
-            desired["abdomen_pitch"] = -desired.get(f"{side}_shoulder_pitch", 0.0) * 0.2
-            desired[f"{side}_hip_pitch"] = desired.get(f"{side}_shoulder_pitch", 0.0) * 0.12
-    else:
-        if abs(dx) > 0.03:
-            desired[f"{side}_hip_roll"] = min(22.0, abs(dx) * 18.0) * (1 if dx > 0 else -1)
-        if abs(dy) > 0.03:
-            desired[f"{side}_hip_pitch"] = min(25.0, abs(dy) * 16.0) * (1 if dy < 0 else -1)
-        if dz > 0.02:
-            desired[f"{side}_knee"] = min(25.0, dz * 60.0)
-            desired[f"{side}_ankle"] = -desired[f"{side}_knee"] * 0.35
-
-    current = obs.get("joint_targets", obs.get("joints", {}))
-    alpha = 0.06
-    joints: dict[str, float] = {}
-    for name in set(desired) | set(JOINT_SCHEMA):
-        if name not in desired:
-            continue
-        neutral = JOINT_SCHEMA[name]["neutral"]
-        start = float(current.get(name, neutral))
-        joints[name] = start + (desired[name] - start) * alpha
-
-    return {"joint_targets": joints, "delta": False}
+    """Use built-in whole-body IK (operational-space reach + balance)."""
+    return {"use_ik": True}
 
 
 def _setup_camera(viewer: mujoco.viewer.Handle) -> None:
@@ -318,6 +270,7 @@ def _advance_demo_spin(env: TwisterEnv, obs: dict[str, Any]) -> dict[str, Any]:
         locked_limbs=state.constraints.to_dict(),
         target_circle=target.to_dict(),
         placement_error_m=err,
+        reach=env._reach,
     )
 
 
@@ -532,7 +485,7 @@ def main() -> None:
     parser.add_argument("--demo", action="store_true", help="Single-turn heuristic demo")
     parser.add_argument("--spins", type=int, default=5, help="Number of Twister spins (default mode)")
     parser.add_argument("--pause", type=float, default=3.0, help="Seconds between spin and move")
-    parser.add_argument("--steps-per-turn", type=int, default=50, help="Max physics steps per move")
+    parser.add_argument("--steps-per-turn", type=int, default=120, help="Max physics steps per move")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--speed", type=float, default=1.0, help="Replay speed multiplier")
     parser.add_argument("--loop", action="store_true", help="Loop trace replay")

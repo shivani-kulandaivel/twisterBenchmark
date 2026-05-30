@@ -1,27 +1,53 @@
-You control a humanoid body playing Twister in a physics simulator.
+You control a humanoid body playing Twister in a MuJoCo physics simulator.
 
 Each step, respond with ONLY valid JSON (no markdown fences):
 {"joint_targets": {"joint_name": angle_in_degrees, ...}}
 
-Optional: set "delta": true to send angle changes instead of absolute targets.
+Recommended strategies (in order of difficulty):
+1. Easy — delegate to built-in whole-body IK for one step:
+   {"use_ik": true}
+2. Medium — copy or blend the physics-aware reference in the observation:
+   {"joint_targets": <observation.ik_suggestion>, "delta": false}
+   or blend: {"joint_targets": {...}, "follow_ik": true, "ik_blend": 0.7}
+3. Advanced — manual control using reach_vector (dx, dy, dz toward target) and primary_joints.
 
-Controllable joints (degrees, use joint names exactly):
-- abdomen_pitch (-30 to 30)
-- left_shoulder_pitch, right_shoulder_pitch (-120 to 120)
-- left_shoulder_roll, right_shoulder_roll (-90 to 90)
-- left_elbow, right_elbow (0 to 150)
-- left_hip_pitch, right_hip_pitch (-120 to 45)
-- left_hip_roll, right_hip_roll (-45 to 45)
-- left_knee, right_knee (0 to 150)
-- left_ankle, right_ankle (-45 to 45)
+Optional fields:
+- "delta": true — values are angle changes instead of absolute targets
+- "max_delta": 8 — cap per-step change when delta=true
+- "follow_ik": true — blend your targets with observation.ik_suggestion
+- "ik_blend": 0.65 — blend weight for follow_ik (0=you, 1=IK only)
+- "use_ik": true — run built-in operational-space reach controller this step
+- "controller": script-driven control mode. The environment writes your script
+  to a file every prompt and runs it. Your script receives observation JSON on
+  stdin and must print one JSON line:
+  {"action": {...}, "repeat_until_placed": true, "max_steps": 80, "tolerance_m": 0.01}
+  Example action from script: {"use_ik": true}
+
+Example JS controller payload:
+{"controller":{"language":"javascript","code":"const fs=require('fs'); const obs=JSON.parse(fs.readFileSync(0,'utf8')); console.log(JSON.stringify({action:{use_ik:true}, repeat_until_placed:true, max_steps:80}));"}}
+
+Controllable joints (degrees):
+- abdomen_pitch (-50 to 50)
+- left/right_shoulder_pitch (-140 to 140)
+- left_shoulder_roll (-110 to 30), right_shoulder_roll (-30 to 110)
+- left/right_elbow (-5 to 145)
+- left/right_hip_pitch (-120 to 45), hip_roll (-95 to 95)
+- left/right_knee (-5 to 135), ankle (-35 to 35)
 
 Limbs: left_hand, right_hand, left_foot, right_foot.
 
 Read the observation:
-- command.instruction tells you which limb and color to place
-- target_circle gives the mat position (x, y in meters)
-- end_effectors shows current limb positions
-- placement_error is distance to target (must be <= placement_radius, usually 0.08)
-- joints and joint_targets show current body state
+- command.instruction — which limb and color to place
+- target_circle — mat position (x, y meters)
+- active_limb_goal — EXACT control point and target (x, y, z) to drive
+- placement_contract — exact success metric used by the env
+- reach_vector — dx, dy, dz to target (includes target_z contact height)
+- primary_joints — joints that most move the commanded limb
+- ik_suggestion — whole-body IK reference pose (balance-aware)
+- end_effectors — current limb positions; on_mat if z <= 0.25
+- placement_error — horizontal distance to target (must be <= placement_radius, 0.12m)
+- upright / torso — fall if tilt too high or torso too low
 
-Strategy: adjust shoulder, elbow, hip, and knee angles to move the commanded limb toward target_circle (x, y) while staying upright.
+IMPORTANT: The point to place is always `active_limb_goal.control_point` (same as `end_effectors.<commanded_limb>`), and success is checked by XY distance only per `placement_contract`.
+
+Move the commanded limb so `active_limb_goal.current_xyz` matches `active_limb_goal.target_xyz`, while staying upright.

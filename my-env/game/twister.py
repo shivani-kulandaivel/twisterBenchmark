@@ -117,10 +117,89 @@ class Spinner:
     def __init__(self, rng: random.Random) -> None:
         self._rng = rng
 
-    def spin(self, mat: TwisterMat) -> TwisterCommand:
-        limb, color = self._rng.choice(SPINNER_OPTIONS)
+    def spin(
+        self,
+        mat: TwisterMat,
+        *,
+        limb_weights: dict[str, float] | None = None,
+        forbidden_circles: set[tuple[int, int]] | None = None,
+    ) -> TwisterCommand:
+        """Sample a command with reachability-aware rejection.
+
+        The previous fully-uniform spinner generated many physically impossible
+        circles for the current humanoid. This keeps randomness but avoids
+        pathological commands outside the practical workspace.
+        """
+        options = SPINNER_OPTIONS
+        for _ in range(40):
+            limb, color = self._weighted_option(options, limb_weights)
+            candidates = [
+                c for c in mat.circles_by_color(color)
+                if self._is_reasonably_reachable(limb, c)
+                and (forbidden_circles is None or (c.row, c.col) not in forbidden_circles)
+            ]
+            if candidates:
+                circle = self._rng.choice(candidates)
+                return TwisterCommand(limb=limb, color=color, row=circle.row, col=circle.col)
+
+        # Fallback: pick from globally easiest cells.
+        feasible: list[tuple[str, str, Circle]] = []
+        for limb, color in options:
+            for circle in mat.circles_by_color(color):
+                if (
+                    self._is_reasonably_reachable(limb, circle)
+                    and (forbidden_circles is None or (circle.row, circle.col) not in forbidden_circles)
+                ):
+                    feasible.append((limb, color, circle))
+        if feasible:
+            limb, color, circle = self._rng.choice(feasible)
+            return TwisterCommand(limb=limb, color=color, row=circle.row, col=circle.col)
+
+        # Last resort: preserve old behavior.
+        limb, color = self._weighted_option(options, limb_weights)
         circle = self._rng.choice(mat.circles_by_color(color))
         return TwisterCommand(limb=limb, color=color, row=circle.row, col=circle.col)
+
+    def _weighted_option(
+        self,
+        options: list[tuple[str, str]],
+        limb_weights: dict[str, float] | None,
+    ) -> tuple[str, str]:
+        if not limb_weights:
+            return self._rng.choice(options)
+        weights = [max(0.0, float(limb_weights.get(limb, 1.0))) for limb, _ in options]
+        if sum(weights) <= 0.0:
+            return self._rng.choice(options)
+        return self._rng.choices(options, weights=weights, k=1)[0]
+
+    @staticmethod
+    def _is_reasonably_reachable(limb: str, circle: Circle) -> bool:
+        x, y = circle.x, circle.y
+        r = math.hypot(x, y)
+        if limb.endswith("foot"):
+            # Feet are the current bottleneck; keep commands in a tighter
+            # reachable envelope so the controller can produce clear motion.
+            if r > 0.34 or abs(y) > 0.22:
+                return False
+            if limb == "left_foot" and x < -0.18:
+                return False
+            if limb == "right_foot" and x > 0.18:
+                return False
+            return True
+        # Hands can reach forward/lateral circles but behind-the-body commands
+        # are unstable with the current two-foot balance regime.
+        if r > 0.44 or y < -0.10:
+            return False
+        # Keep hands mostly on their natural side to avoid impossible crossover.
+        if limb == "left_hand" and x < -0.12:
+            return False
+        if limb == "left_hand" and x > 0.42:
+            return False
+        if limb == "right_hand" and x > 0.12:
+            return False
+        if limb == "right_hand" and x < -0.42:
+            return False
+        return True
 
 
 def horizontal_distance(x1: float, y1: float, x2: float, y2: float) -> float:
@@ -171,9 +250,12 @@ class ConstraintTracker:
         end_effectors: dict[str, dict[str, float]],
         mat: TwisterMat,
         radius: float = PLACEMENT_RADIUS,
+        ignore_limb: str | None = None,
     ) -> list[str]:
         violations: list[str] = []
         for item in self.locked:
+            if ignore_limb is not None and item.limb == ignore_limb:
+                continue
             circle = mat.circle_at(item.row, item.col)
             limb_pos = end_effectors[item.limb]
             if not is_placed(limb_pos, circle, radius):

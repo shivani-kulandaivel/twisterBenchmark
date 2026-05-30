@@ -11,12 +11,12 @@
 
     "observation_space": {
       "type": "json",
-      "description": "{ phase, command: { limb, color, circle, instruction }, target_circle, joints, joint_targets, end_effectors, mat, locked_limbs, turn, upright, torso, placement_error? }"
+      "description": "{ phase, command, target_circle, reach_vector, primary_joints, ik_suggestion, joints, joint_targets, end_effectors, mat, locked_limbs, turn, upright, torso, placement_error? }"
     },
 
     "action_space": {
       "type": "json",
-      "description": "{ \"joint_targets\": { \"left_elbow\": 90.0, ... }, \"delta\": false } — absolute target angles in degrees (Option B position control)"
+      "description": "{ joint_targets?, delta?, max_delta?, follow_ik?, ik_blend?, use_ik? } — absolute angles in degrees, or use_ik for built-in whole-body reach"
     },
 
     "reward": {
@@ -33,7 +33,11 @@
       "observability": "full"
     },
 
-    "techniques": []
+    "techniques": [
+      "operational_space_ik",
+      "hierarchical_null_space_balance",
+      "smooth_joint_trajectories"
+    ]
   },
 
   "scoring": {

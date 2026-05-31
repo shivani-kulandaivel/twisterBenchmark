@@ -1,0 +1,43 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# --- my-env runtime artifacts ---
+my-env/generated_controllers/
+my-env/MUJOCO_LOG.TXT
+my-env/data/traces/
+
+# --- Local ephemeral state (see my-env/.local_state/README.md) ---
+my-env/.local_state/*
+!my-env/.local_state/README.md
+!my-env/.local_state/session.json.example
+
+# --- Blender mesh export build artifacts (offline export, can be large) ---
+my-env/sim/mjcf/assets/humanoid_meshes/
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- IDE / editor local state ---
+.idea/
+.vscode/
+*.swp
+*.swo
+.cursor/

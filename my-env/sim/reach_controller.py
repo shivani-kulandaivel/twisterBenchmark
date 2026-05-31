@@ -101,8 +101,21 @@ class ReachController:
     def primary_joints(self, limb: str) -> list[str]:
         side = "left" if limb.startswith("left") else "right"
         if limb.endswith("hand"):
-            return [f"{side}_shoulder_pitch", f"{side}_shoulder_roll", f"{side}_elbow", "abdomen_pitch"]
-        return [f"{side}_hip_pitch", f"{side}_hip_roll", f"{side}_knee", f"{side}_ankle"]
+            return [
+                f"{side}_shoulder_pitch",
+                f"{side}_shoulder_roll",
+                f"{side}_elbow",
+                "abdomen_pitch",
+                f"{side}_hip_pitch",
+                f"{side}_hip_roll",
+            ]
+        return [
+            f"{side}_hip_pitch",
+            f"{side}_hip_roll",
+            f"{side}_knee",
+            f"{side}_ankle",
+            "abdomen_pitch",
+        ]
 
     def suggest_targets(
         self,
@@ -205,6 +218,7 @@ class ReachController:
             goal,
             limb=limb,
             dist_xy=dist_xy,
+            dx=target_x - ee["x"],
             dy=target_y - ee["y"],
         )
         current = self._sim.get_joint_targets_deg()
@@ -241,6 +255,10 @@ class ReachController:
             f"{side}_elbow",
             "left_hip_pitch",
             "right_hip_pitch",
+            "left_hip_roll",
+            "right_hip_roll",
+            "left_knee",
+            "right_knee",
         ]
         cols = np.array(
             [model.jnt_dofadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, n)] for n in joint_names],
@@ -249,6 +267,8 @@ class ReachController:
         site_id = sim._site_ids[limb]
         ee = sim.get_end_effector_positions()[limb]
         dist_xy = math.hypot(target_x - ee["x"], target_y - ee["y"])
+        dx = target_x - ee["x"]
+        dy = target_y - ee["y"]
         # Move in two phases: hover while far, then drop onto the circle.
         tz = 0.24 if dist_xy > 0.18 else self.contact_z(limb)
         target = np.array([target_x, target_y, tz], dtype=np.float64)
@@ -277,9 +297,15 @@ class ReachController:
             stepped,
             limb=limb,
             dist_xy=dist_xy,
-            dy=target_y - ee["y"],
+            dx=dx,
+            dy=dy,
         )
         sim.set_targets_smooth(stepped)
+
+    @staticmethod
+    def _clip_joint(name: str, value: float) -> float:
+        spec = JOINT_SCHEMA[name]
+        return float(np.clip(value, spec["low"], spec["high"]))
 
     def _inject_hip_bend_fallback(
         self,
@@ -287,34 +313,59 @@ class ReachController:
         *,
         limb: str,
         dist_xy: float,
+        dx: float,
         dy: float,
     ) -> None:
-        """If end-effector progress is hard, proactively bend at hips/torso.
+        """Hinge at hips/torso when the target is hard to reach.
 
-        This mimics how people naturally hinge at the hips to extend reach for
-        both feet and hands, instead of keeping an upright rigid trunk.
+        Combines forward/back bend and lateral hip twist so the figure moves
+        like a person leaning and rotating at the hips instead of staying rigid.
         """
-        if dist_xy < 0.22:
-            return
-        bend = min(28.0, 8.0 + 48.0 * (dist_xy - 0.22))
-        # Direction: positive dy means target is forward; negative means backward.
-        sign = 1.0 if dy >= 0.0 else -1.0
-        # Hinge with mirrored hip pitch signs due mirrored joint axes.
-        if sign > 0.0:
-            # Forward bend.
-            targets["left_hip_pitch"] = min(targets.get("left_hip_pitch", 0.0), -bend)
-            targets["right_hip_pitch"] = max(targets.get("right_hip_pitch", 0.0), bend)
-            targets["abdomen_pitch"] = min(targets.get("abdomen_pitch", 0.0), -0.45 * bend)
-        else:
-            # Backward bend.
-            targets["left_hip_pitch"] = max(targets.get("left_hip_pitch", 0.0), bend)
-            targets["right_hip_pitch"] = min(targets.get("right_hip_pitch", 0.0), -bend)
-            targets["abdomen_pitch"] = max(targets.get("abdomen_pitch", 0.0), 0.45 * bend)
-        if limb.endswith("foot"):
-            # Mild knee flex for stepping clearance.
-            knee_bend = min(28.0, 8.0 + 0.45 * bend)
-            targets["left_knee"] = max(targets.get("left_knee", 0.0), knee_bend)
-            targets["right_knee"] = max(targets.get("right_knee", 0.0), knee_bend)
+        # Forward/back hip + trunk hinge (engages only on genuinely far reaches
+        # so close, easy targets keep a natural near-upright posture).
+        if dist_xy >= 0.22:
+            bend = min(28.0, 8.0 + 48.0 * (dist_xy - 0.22))
+            if dy >= 0.0:
+                targets["left_hip_pitch"] = self._clip_joint(
+                    "left_hip_pitch", min(targets.get("left_hip_pitch", 0.0), -bend)
+                )
+                targets["right_hip_pitch"] = self._clip_joint(
+                    "right_hip_pitch", max(targets.get("right_hip_pitch", 0.0), bend)
+                )
+                targets["abdomen_pitch"] = self._clip_joint(
+                    "abdomen_pitch", min(targets.get("abdomen_pitch", 0.0), -0.45 * bend)
+                )
+            else:
+                targets["left_hip_pitch"] = self._clip_joint(
+                    "left_hip_pitch", max(targets.get("left_hip_pitch", 0.0), bend)
+                )
+                targets["right_hip_pitch"] = self._clip_joint(
+                    "right_hip_pitch", min(targets.get("right_hip_pitch", 0.0), -bend)
+                )
+                targets["abdomen_pitch"] = self._clip_joint(
+                    "abdomen_pitch", max(targets.get("abdomen_pitch", 0.0), 0.45 * bend)
+                )
+            if limb.endswith("foot"):
+                knee_bend = min(28.0, 8.0 + 0.45 * bend)
+                targets["left_knee"] = self._clip_joint(
+                    "left_knee", max(targets.get("left_knee", 0.0), knee_bend)
+                )
+                targets["right_knee"] = self._clip_joint(
+                    "right_knee", max(targets.get("right_knee", 0.0), knee_bend)
+                )
+
+        # Gentle lateral hip lean toward sideways targets adds whole-body
+        # variety (left/right weight shift) without over-rotating the trunk.
+        if dist_xy >= 0.16 and abs(dx) > 0.04:
+            twist = min(18.0, 30.0 * (abs(dx) - 0.04))
+            if dx > 0.0:
+                targets["left_hip_roll"] = self._clip_joint(
+                    "left_hip_roll", max(targets.get("left_hip_roll", 0.0), twist)
+                )
+            else:
+                targets["right_hip_roll"] = self._clip_joint(
+                    "right_hip_roll", min(targets.get("right_hip_roll", 0.0), -twist)
+                )
 
     def _lean_bias(self, limb: str, target_x: float, target_y: float) -> tuple[float, float]:
         """Shift the CoM target toward the reach, clamped to the support margin."""
@@ -389,7 +440,7 @@ class ReachController:
             # Pike strategy: keep the pelvis HIGH and let the trunk fold forward
             # (don't fight pelvis pitch), so only hands + feet touch the floor.
             sec[3] = 0.0          # allow forward/back pelvis pitch (the fold)
-            sec[4] = 0.8 * rest[1]  # still resist sideways (roll) tipping
+            sec[4] = 0.8 * rest[1]  # strongly resist sideways (roll) tipping
             sec[5] = 0.8 * rest[2]
             sec[2] = 1.6 * (0.74 - root_z)  # strongly prefer a tall pelvis
             # bias knees toward straight (pike, not squat)

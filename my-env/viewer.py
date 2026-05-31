@@ -35,6 +35,9 @@ LIMB_COLORS: dict[str, tuple[float, float, float, float]] = {
     "right_foot": (0.2, 0.8, 0.4, 0.95),
 }
 
+VISUAL_GEOM_GROUP = 1
+COLLISION_GEOM_GROUP = 3
+
 
 class MatHighlighter:
     """Highlight target and locked circles on the Twister mat."""
@@ -183,8 +186,23 @@ def _obs_from_result(result: Any) -> dict[str, Any]:
 
 
 def _naive_action(obs: dict[str, Any]) -> dict[str, Any]:
-    """Use built-in whole-body IK (operational-space reach + balance)."""
+    """One IK physics step per viewer frame.
+
+    Do not use controller mode here: each controller step can run up to
+    max_steps inner physics iterations, which exhausts PHASE2_MAX_STEPS (~200)
+    in a couple of viewer frames and ends the episode with reason \"timeout\".
+    """
+    del obs
     return {"use_ik": True}
+
+
+def _apply_render_quality(model: mujoco.MjModel, quality: str) -> None:
+    model.vis.global_.glow = 0.0
+    if quality != "high":
+        return
+    model.vis.global_.offwidth = max(model.vis.global_.offwidth, 1920)
+    model.vis.global_.offheight = max(model.vis.global_.offheight, 1080)
+    model.vis.quality.shadowsize = max(model.vis.quality.shadowsize, 8192)
 
 
 def _setup_camera(viewer: mujoco.viewer.Handle) -> None:
@@ -192,6 +210,26 @@ def _setup_camera(viewer: mujoco.viewer.Handle) -> None:
     viewer.cam.elevation = -18
     viewer.cam.distance = 3.8
     viewer.cam.lookat[:] = (0.0, 0.0, 0.85)
+
+
+def _setup_visual(
+    viewer: mujoco.viewer.Handle,
+    *,
+    quality: str = "standard",
+    show_collision: bool = False,
+) -> None:
+    _setup_camera(viewer)
+    viewer.opt.frame = mujoco.mjtFrame.mjFRAME_WORLD
+    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = False
+    for i in range(len(viewer.opt.geomgroup)):
+        viewer.opt.geomgroup[i] = 1
+    viewer.opt.geomgroup[VISUAL_GEOM_GROUP] = 1
+    viewer.opt.geomgroup[COLLISION_GEOM_GROUP] = 1 if show_collision else 0
+    if quality == "high":
+        viewer.opt.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = True
+        viewer.opt.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = True
+        viewer.opt.flags[mujoco.mjtRndFlag.mjRND_SKYBOX] = True
+        viewer.opt.flags[mujoco.mjtRndFlag.mjRND_FOG] = False
 
 
 def _sync_viewer(
@@ -281,8 +319,11 @@ def run_spins(
     num_spins: int,
     pause_sec: float,
     steps_per_turn: int,
+    render_quality: str = "standard",
+    show_collision: bool = False,
 ) -> None:
     sim = env._sim
+    _apply_render_quality(sim.model, render_quality)
     highlighter = MatHighlighter(sim.model)
     obs = env.reset(seed=seed, phase=2, max_turns=num_spins)
     turn = obs["turn"]
@@ -292,7 +333,7 @@ def run_spins(
     print("Close the MuJoCo window to exit.\n", flush=True)
 
     with mujoco.viewer.launch_passive(sim.model, sim.data) as viewer:
-        _setup_camera(viewer)
+        _setup_visual(viewer, quality=render_quality, show_collision=show_collision)
 
         while viewer.is_running() and not terminated and turn <= num_spins:
             cmd = obs["command"]
@@ -383,6 +424,8 @@ def run_spins(
                     break
 
             if placed:
+                if obs["turn"] <= turn and turn < num_spins:
+                    obs = _advance_demo_spin(env, obs)
                 turn = obs["turn"]
             elif turn < num_spins:
                 obs = _advance_demo_spin(env, obs)
@@ -400,8 +443,11 @@ def run_replay(
     seed: int | None,
     speed: float,
     loop: bool,
+    render_quality: str = "standard",
+    show_collision: bool = False,
 ) -> None:
     sim = env._sim
+    _apply_render_quality(sim.model, render_quality)
     highlighter = MatHighlighter(sim.model)
     obs = env.reset(seed=seed)
     target = obs.get("target_circle")
@@ -411,7 +457,7 @@ def run_replay(
     print(f"Replaying {len(actions)} steps. Close the MuJoCo window to exit.\n")
 
     with mujoco.viewer.launch_passive(sim.model, sim.data) as viewer:
-        _setup_camera(viewer)
+        _setup_visual(viewer, quality=render_quality, show_collision=show_collision)
         action_idx = 0
         last_advance = time.time()
 
@@ -441,8 +487,17 @@ def run_replay(
             time.sleep(0.01)
 
 
-def run_demo(env: TwisterEnv, *, seed: int, speed: float, max_steps: int) -> None:
+def run_demo(
+    env: TwisterEnv,
+    *,
+    seed: int,
+    speed: float,
+    max_steps: int,
+    render_quality: str = "standard",
+    show_collision: bool = False,
+) -> None:
     sim = env._sim
+    _apply_render_quality(sim.model, render_quality)
     highlighter = MatHighlighter(sim.model)
     obs = env.reset(seed=seed)
     target = obs.get("target_circle")
@@ -450,7 +505,7 @@ def run_demo(env: TwisterEnv, *, seed: int, speed: float, max_steps: int) -> Non
         highlighter.set_target(target["row"], target["col"])
 
     with mujoco.viewer.launch_passive(sim.model, sim.data) as viewer:
-        _setup_camera(viewer)
+        _setup_visual(viewer, quality=render_quality, show_collision=show_collision)
         last_step = time.time()
         step_num = 0
 
@@ -490,6 +545,17 @@ def main() -> None:
     parser.add_argument("--speed", type=float, default=1.0, help="Replay speed multiplier")
     parser.add_argument("--loop", action="store_true", help="Loop trace replay")
     parser.add_argument("--max-steps", type=int, default=50)
+    parser.add_argument(
+        "--quality",
+        choices=("standard", "high"),
+        default="high",
+        help="Visual quality (high enables shadows, skybox, 1080p offscreen buffer)",
+    )
+    parser.add_argument(
+        "--show-collision",
+        action="store_true",
+        help="Render collision geoms (group 3) in addition to visual geoms",
+    )
     args = parser.parse_args()
 
     env = TwisterEnv()
@@ -502,11 +568,26 @@ def main() -> None:
         if not actions:
             print(f"Trace has no actions: {args.trace}")
             raise SystemExit(1)
-        run_replay(env, actions, seed=seed, speed=args.speed, loop=args.loop)
+        run_replay(
+            env,
+            actions,
+            seed=seed,
+            speed=args.speed,
+            loop=args.loop,
+            render_quality=args.quality,
+            show_collision=args.show_collision,
+        )
         return
 
     if args.demo:
-        run_demo(env, seed=args.seed, speed=args.speed, max_steps=args.max_steps)
+        run_demo(
+            env,
+            seed=args.seed,
+            speed=args.speed,
+            max_steps=args.max_steps,
+            render_quality=args.quality,
+            show_collision=args.show_collision,
+        )
         return
 
     run_spins(
@@ -515,6 +596,8 @@ def main() -> None:
         num_spins=args.spins,
         pause_sec=args.pause,
         steps_per_turn=args.steps_per_turn,
+        render_quality=args.quality,
+        show_collision=args.show_collision,
     )
 
 

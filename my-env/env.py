@@ -25,6 +25,7 @@ from sim.reach_controller import ReachController
 PHASE1_MAX_STEPS = 160
 PHASE2_MAX_STEPS = 200
 PHASE2_MAX_TURNS = 10
+CONTROLLER_SCRIPT_TIMEOUT_S = 60.0
 
 _SYSTEM_PROMPT_PATH = Path(__file__).parent / "system_prompt.txt"
 _CONTROLLER_DIR = Path(__file__).parent / "generated_controllers"
@@ -126,6 +127,8 @@ class TwisterEnv(BaseEnv):
         parsed = self._parse_action(action)
         if "controller" in parsed:
             return self._step_with_controller(parsed["controller"])
+        if self._is_high_level_action(parsed):
+            return self._step_high_level(parsed)
         self._apply_action(parsed)
         self._sim.step_physics()
         self._step_count += 1
@@ -133,6 +136,88 @@ class TwisterEnv(BaseEnv):
         if self._phase == 1:
             return self._step_phase1()
         return self._step_phase2()
+
+    @staticmethod
+    def _is_high_level_action(parsed: dict[str, Any]) -> bool:
+        """High-level 'pick the circle' interface: the agent names a target and
+        the env runs its internal IK pursuit loop to move the limb there."""
+        if "target_circle" in parsed or "target_xyz" in parsed:
+            return True
+        # use_ik with repeat means "drive to the commanded circle for me".
+        return bool(parsed.get("use_ik")) and bool(parsed.get("repeat_until_placed"))
+
+    def _resolve_high_level_target(self, parsed: dict[str, Any]) -> tuple[str, float, float]:
+        """Resolve the (limb, x, y) the agent wants the limb driven toward.
+
+        Defaults to the spinner-commanded circle; an explicit target_circle or
+        target_xyz lets the agent choose where to place the spun limb.
+        """
+        cmd = self._current_command()
+        target = self._mat.circle_at(cmd.row, cmd.col)
+        tx, ty = float(target.x), float(target.y)
+
+        tc = parsed.get("target_circle")
+        if isinstance(tc, (list, tuple)) and len(tc) >= 2:
+            try:
+                circ = self._mat.circle_at(int(tc[0]), int(tc[1]))
+                tx, ty = float(circ.x), float(circ.y)
+            except (ValueError, TypeError):
+                pass
+        else:
+            txyz = parsed.get("target_xyz")
+            if isinstance(txyz, dict):
+                tx = float(txyz.get("x", tx))
+                ty = float(txyz.get("y", ty))
+            elif isinstance(txyz, (list, tuple)) and len(txyz) >= 2:
+                tx, ty = float(txyz[0]), float(txyz[1])
+        return cmd.limb, tx, ty
+
+    def _drive_ik_toward(self, limb: str, target_x: float, target_y: float) -> None:
+        anchor_limbs: list[str] | None = None
+        if self._phase2 is not None:
+            anchor_limbs = [
+                item.limb for item in self._phase2.constraints.locked if item.limb != limb
+            ]
+        self._reach.apply_step(limb, target_x, target_y, anchor_limbs=anchor_limbs)
+
+    def _step_high_level(self, parsed: dict[str, Any]) -> StepResult:
+        """Run the built-in IK pursuit loop toward the chosen target.
+
+        The agent only picks the circle/coordinate; the env interpolates a
+        smooth, balanced, human-like trajectory over many physics steps.
+        """
+        limb, target_x, target_y = self._resolve_high_level_target(parsed)
+        repeat = bool(parsed.get("repeat_until_placed", True))
+        max_steps = max(1, min(220, int(parsed.get("max_steps", 120))))
+        tolerance_m = max(0.001, min(0.25, float(parsed.get("tolerance_m", PLACEMENT_RADIUS))))
+
+        # Identify the command we are satisfying so we stop the moment it is
+        # placed. In phase 2 a successful placement advances the turn (terminated
+        # stays False) — without this we would keep driving toward a stale target.
+        cmd_before = self._current_command()
+        cmd_key = (cmd_before.limb, cmd_before.row, cmd_before.col)
+
+        last: StepResult | None = None
+        prior_override = self._placement_radius_override
+        self._placement_radius_override = tolerance_m
+        try:
+            for _ in range(max_steps):
+                self._drive_ik_toward(limb, target_x, target_y)
+                self._sim.step_physics()
+                self._step_count += 1
+                last = self._step_phase1() if self._phase == 1 else self._step_phase2()
+                if last.terminated:
+                    break
+                # Turn advanced => current command was placed; stop here.
+                now = self._current_command()
+                if (now.limb, now.row, now.col) != cmd_key:
+                    break
+                if not repeat:
+                    break
+        finally:
+            self._placement_radius_override = prior_override
+        assert last is not None
+        return last
 
     def _step_with_controller(self, controller: Any) -> StepResult:
         action, repeat, max_steps, tolerance_m, script_path = self._resolve_controller_action(controller)
@@ -193,7 +278,7 @@ class TwisterEnv(BaseEnv):
                 input=json.dumps(obs),
                 text=True,
                 capture_output=True,
-                timeout=3.0,
+                timeout=CONTROLLER_SCRIPT_TIMEOUT_S,
                 check=False,
             )
             out = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
@@ -439,7 +524,19 @@ def joint_schema_for_prompt() -> dict[str, Any]:
 
 def action_schema_for_prompt() -> dict[str, Any]:
     return {
-        "joint_targets": "dict of joint_name -> angle in degrees",
+        "target_circle": (
+            "PREFERRED high-level action: [row, col] of the circle to place the "
+            "spun limb on. The env runs balanced IK to move the limb there over "
+            "many physics steps. Defaults to the commanded circle if omitted."
+        ),
+        "target_xyz": (
+            "Optional high-level alternative to target_circle: {x, y} (meters) or "
+            "[x, y] coordinate to drive the spun limb toward via built-in IK."
+        ),
+        "rationale": "optional free-text note on why you picked that circle (ignored by physics)",
+        "repeat_until_placed": "bool (default true) — keep running IK until placed or max_steps",
+        "tolerance_m": f"high-level/controller success radius in meters (default {PLACEMENT_RADIUS})",
+        "joint_targets": "dict of joint_name -> angle in degrees (advanced manual control)",
         "delta": "optional bool; if true, values are per-step changes (default false)",
         "max_delta": f"optional max change per step when delta=true (default {MAX_DELTA_DEG})",
         "follow_ik": "optional bool; blend your targets with observation.ik_suggestion",

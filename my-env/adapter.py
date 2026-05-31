@@ -57,12 +57,16 @@ def _install_schema_route(app: Any) -> None:
                 ),
             },
             "control_notes": (
-                "Whole-body reach uses operational-space IK (Khatib/Sentis-style hierarchy): "
-                "end-effector tracking, null-space balance, posture regularization. "
-                "Use observation.ik_suggestion as a physics-aware reference pose, "
-                "or set action.use_ik=true to delegate one step to the built-in controller. "
-                "Advanced: action.controller writes your JS/Python script to "
-                "generated_controllers/ and executes it each prompt."
+                "You are a HIGH-LEVEL controller: pick WHICH circle the spun limb should "
+                "go on, and the environment's IK/trajectory solver moves the limb there "
+                "smoothly and realistically. Preferred action: {\"target_circle\": [row, col], "
+                "\"rationale\": \"...\"}. The whole-body reach uses operational-space IK "
+                "(Khatib/Sentis-style hierarchy: end-effector tracking, null-space balance, "
+                "posture regularization) and will hinge/twist at the hips, lean, crouch, and "
+                "shift weight to reach. You do NOT need to send joint angles. "
+                "Advanced/optional fallbacks: action.use_ik (single balanced step), "
+                "action.joint_targets (manual degrees), and action.controller (writes your "
+                "JS/Python script to generated_controllers/ and runs it each prompt)."
             ),
         }
 

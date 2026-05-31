@@ -1,0 +1,7 @@
+{
+  "last_seed": 42,
+  "last_model": "ollama/llama3.2",
+  "last_episodes": 3,
+  "last_system_prompt": "system_prompt.txt",
+  "notes": "Copy to session.json and update after each local run."
+}

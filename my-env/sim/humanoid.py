@@ -70,13 +70,9 @@ class HumanoidSim:
             for name in ("left_foot_geom", "right_foot_geom")
         ]
         self._floor_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
-        # Bodies whose contact with the floor counts as a collapse (NOT feet,
-        # NOT forearms/hands — those are legal contact points in Twister).
-        _collapse_bodies = (
-            "pelvis", "torso", "head",
-            "left_thigh", "right_thigh", "left_shin", "right_shin",
-            "left_upper_arm", "right_upper_arm",
-        )
+        # Bodies whose contact with the floor counts as a collapse (NOT feet/hands;
+        # limbs may touch during deep hip bends and all-fours Twister poses).
+        _collapse_bodies = ("pelvis", "torso", "head")
         self._collapse_body_ids = {
             mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, b) for b in _collapse_bodies
         }
@@ -311,7 +307,7 @@ class HumanoidSim:
             if body in self._collapse_body_ids:
                 return True
         # 2) Pelvis/head dropped near the floor (face-plant / sat down hard).
-        if float(self.data.xpos[self._pelvis_id][2]) < 0.35:
+        if float(self.data.xpos[self._pelvis_id][2]) < 0.28:
             return True
         # 3) Tumbling: large angular velocity of the root.
         wr = self.data.qvel[self._root_qvel_idx + 3 : self._root_qvel_idx + 6]

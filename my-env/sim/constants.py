@@ -4,7 +4,10 @@ from __future__ import annotations
 
 # Human-readable joint names mapped to MJCF joint names.
 JOINT_SCHEMA: dict[str, dict[str, float]] = {
-    "abdomen_pitch": {"low": -50.0, "high": 50.0, "neutral": 0.0},
+    "lumbar_pitch": {"low": -35.0, "high": 35.0, "neutral": 0.0},
+    "lumbar_roll": {"low": -25.0, "high": 25.0, "neutral": 0.0},
+    "thoracic_yaw": {"low": -45.0, "high": 45.0, "neutral": 0.0},
+    "thoracic_pitch": {"low": -35.0, "high": 35.0, "neutral": 0.0},
     "left_shoulder_pitch": {"low": -140.0, "high": 140.0, "neutral": 0.0},
     "left_shoulder_roll": {"low": -110.0, "high": 30.0, "neutral": 0.0},
     "left_elbow": {"low": -5.0, "high": 145.0, "neutral": 5.0},
@@ -13,10 +16,12 @@ JOINT_SCHEMA: dict[str, dict[str, float]] = {
     "right_elbow": {"low": -5.0, "high": 145.0, "neutral": 5.0},
     "left_hip_pitch": {"low": -120.0, "high": 45.0, "neutral": 0.0},
     "left_hip_roll": {"low": -95.0, "high": 95.0, "neutral": 0.0},
+    "left_hip_yaw": {"low": -45.0, "high": 45.0, "neutral": 0.0},
     "left_knee": {"low": -5.0, "high": 135.0, "neutral": 0.0},
     "left_ankle": {"low": -35.0, "high": 35.0, "neutral": 0.0},
     "right_hip_pitch": {"low": -120.0, "high": 45.0, "neutral": 0.0},
     "right_hip_roll": {"low": -95.0, "high": 95.0, "neutral": 0.0},
+    "right_hip_yaw": {"low": -45.0, "high": 45.0, "neutral": 0.0},
     "right_knee": {"low": -5.0, "high": 135.0, "neutral": 0.0},
     "right_ankle": {"low": -35.0, "high": 35.0, "neutral": 0.0},
 }

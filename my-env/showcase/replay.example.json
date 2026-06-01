@@ -33,7 +33,8 @@
             "left_shoulder_pitch": 55.0,
             "left_shoulder_roll": -25.0,
             "left_elbow": 75.0,
-            "abdomen_pitch": 10.0
+            "lumbar_pitch": 8.0,
+            "thoracic_pitch": 4.0
           }
         },
         "reward": 0.16,

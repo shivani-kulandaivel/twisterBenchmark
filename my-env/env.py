@@ -25,10 +25,10 @@ from sim.reach_controller import ReachController
 PHASE1_MAX_STEPS = 160
 PHASE2_MAX_STEPS = 200
 PHASE2_MAX_TURNS = 10
-CONTROLLER_SCRIPT_TIMEOUT_S = 60.0
 
 _SYSTEM_PROMPT_PATH = Path(__file__).parent / "system_prompt.txt"
 _CONTROLLER_DIR = Path(__file__).parent / "generated_controllers"
+from debug_log import dbg as _dbg
 
 
 def _load_system_prompt() -> str:
@@ -125,94 +125,73 @@ class TwisterEnv(BaseEnv):
             raise RuntimeError("Call reset() before step()")
 
         parsed = self._parse_action(action)
+        action_summary = {
+            "top_keys": sorted(parsed.keys()),
+            "use_ik": bool(parsed.get("use_ik")),
+            "has_controller": "controller" in parsed,
+            "has_joint_targets": bool(parsed.get("joint_targets")),
+        }
+        # #region agent log
+        _dbg(
+            "env.py:step",
+            "step_entry",
+            {
+                "step_count": self._step_count,
+                "phase": self._phase,
+                "action_summary": action_summary,
+            },
+            "H2",
+        )
+        # #endregion
         if "controller" in parsed:
             return self._step_with_controller(parsed["controller"])
-        if self._is_high_level_action(parsed):
+        if parsed.get("use_ik") and parsed.get("repeat_until_placed"):
             return self._step_high_level(parsed)
         self._apply_action(parsed)
         self._sim.step_physics()
+        cmd = self._current_command()
+        self._rehold_locked_limbs(skip_limb=cmd.limb)
         self._step_count += 1
 
         if self._phase == 1:
             return self._step_phase1()
         return self._step_phase2()
 
-    @staticmethod
-    def _is_high_level_action(parsed: dict[str, Any]) -> bool:
-        """High-level 'pick the circle' interface: the agent names a target and
-        the env runs its internal IK pursuit loop to move the limb there."""
-        if "target_circle" in parsed or "target_xyz" in parsed:
-            return True
-        # use_ik with repeat means "drive to the commanded circle for me".
-        return bool(parsed.get("use_ik")) and bool(parsed.get("repeat_until_placed"))
-
-    def _resolve_high_level_target(self, parsed: dict[str, Any]) -> tuple[str, float, float]:
-        """Resolve the (limb, x, y) the agent wants the limb driven toward.
-
-        Defaults to the spinner-commanded circle; an explicit target_circle or
-        target_xyz lets the agent choose where to place the spun limb.
-        """
-        cmd = self._current_command()
-        target = self._mat.circle_at(cmd.row, cmd.col)
-        tx, ty = float(target.x), float(target.y)
-
-        tc = parsed.get("target_circle")
-        if isinstance(tc, (list, tuple)) and len(tc) >= 2:
-            try:
-                circ = self._mat.circle_at(int(tc[0]), int(tc[1]))
-                tx, ty = float(circ.x), float(circ.y)
-            except (ValueError, TypeError):
-                pass
-        else:
-            txyz = parsed.get("target_xyz")
-            if isinstance(txyz, dict):
-                tx = float(txyz.get("x", tx))
-                ty = float(txyz.get("y", ty))
-            elif isinstance(txyz, (list, tuple)) and len(txyz) >= 2:
-                tx, ty = float(txyz[0]), float(txyz[1])
-        return cmd.limb, tx, ty
-
-    def _drive_ik_toward(self, limb: str, target_x: float, target_y: float) -> None:
-        anchor_limbs: list[str] | None = None
-        if self._phase2 is not None:
-            anchor_limbs = [
-                item.limb for item in self._phase2.constraints.locked if item.limb != limb
-            ]
-        self._reach.apply_step(limb, target_x, target_y, anchor_limbs=anchor_limbs)
-
     def _step_high_level(self, parsed: dict[str, Any]) -> StepResult:
-        """Run the built-in IK pursuit loop toward the chosen target.
-
-        The agent only picks the circle/coordinate; the env interpolates a
-        smooth, balanced, human-like trajectory over many physics steps.
-        """
-        limb, target_x, target_y = self._resolve_high_level_target(parsed)
-        repeat = bool(parsed.get("repeat_until_placed", True))
         max_steps = max(1, min(220, int(parsed.get("max_steps", 120))))
-        tolerance_m = max(0.001, min(0.25, float(parsed.get("tolerance_m", PLACEMENT_RADIUS))))
-
-        # Identify the command we are satisfying so we stop the moment it is
-        # placed. In phase 2 a successful placement advances the turn (terminated
-        # stays False) — without this we would keep driving toward a stale target.
+        tolerance_m = max(
+            0.001,
+            min(0.25, float(parsed.get("tolerance_m", self._active_placement_radius()))),
+        )
         cmd_before = self._current_command()
         cmd_key = (cmd_before.limb, cmd_before.row, cmd_before.col)
+        target = self._mat.circle_at(cmd_before.row, cmd_before.col)
+
+        ik_action = {
+            k: v
+            for k, v in parsed.items()
+            if k not in ("repeat_until_placed", "max_steps", "tolerance_m")
+        }
+        if not ik_action.get("use_ik"):
+            ik_action["use_ik"] = True
 
         last: StepResult | None = None
         prior_override = self._placement_radius_override
         self._placement_radius_override = tolerance_m
         try:
             for _ in range(max_steps):
-                self._drive_ik_toward(limb, target_x, target_y)
+                self._apply_action(ik_action)
                 self._sim.step_physics()
+                self._rehold_locked_limbs(skip_limb=cmd_before.limb)
                 self._step_count += 1
                 last = self._step_phase1() if self._phase == 1 else self._step_phase2()
                 if last.terminated:
                     break
-                # Turn advanced => current command was placed; stop here.
-                now = self._current_command()
-                if (now.limb, now.row, now.col) != cmd_key:
+                limb_pos = self._sim.get_end_effector_positions()[cmd_before.limb]
+                if placement_error(limb_pos, target) <= tolerance_m:
                     break
-                if not repeat:
+                cmd_now = self._current_command()
+                if (cmd_now.limb, cmd_now.row, cmd_now.col) != cmd_key:
                     break
         finally:
             self._placement_radius_override = prior_override
@@ -231,6 +210,8 @@ class TwisterEnv(BaseEnv):
             for _ in range(max_steps):
                 self._apply_action(action)
                 self._sim.step_physics()
+                cmd_now = self._current_command()
+                self._rehold_locked_limbs(skip_limb=cmd_now.limb)
                 self._step_count += 1
                 last = self._step_phase1() if self._phase == 1 else self._step_phase2()
                 info = dict(last.info)
@@ -247,6 +228,11 @@ class TwisterEnv(BaseEnv):
                 if last.terminated:
                     break
                 if not repeat:
+                    break
+                cmd = self._current_command()
+                target = self._mat.circle_at(cmd.row, cmd.col)
+                limb_pos = self._sim.get_end_effector_positions()[cmd.limb]
+                if placement_error(limb_pos, target) <= tolerance_m:
                     break
         finally:
             self._placement_radius_override = prior_override
@@ -278,7 +264,7 @@ class TwisterEnv(BaseEnv):
                 input=json.dumps(obs),
                 text=True,
                 capture_output=True,
-                timeout=CONTROLLER_SCRIPT_TIMEOUT_S,
+                timeout=60.0,
                 check=False,
             )
             out = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
@@ -292,6 +278,21 @@ class TwisterEnv(BaseEnv):
                 action = payload if isinstance(payload, dict) else {}
             if not action:
                 action = {"use_ik": True}
+            # #region agent log
+            _dbg(
+                "env.py:_resolve_controller_action",
+                "controller_resolved",
+                {
+                    "script": str(script_path.name),
+                    "returned_action_keys": sorted(action.keys()) if isinstance(action, dict) else [],
+                    "repeat": repeat,
+                    "max_steps": max_steps,
+                    "tolerance_m": tolerance_m,
+                    "has_locked_in_context": "locked_limbs" in self._controller_context(),
+                },
+                "H4",
+            )
+            # #endregion
             return action, repeat, max_steps, tolerance_m, script_path
         except Exception:
             return {"use_ik": True}, repeat, max_steps, tolerance_m, script_path
@@ -299,7 +300,7 @@ class TwisterEnv(BaseEnv):
     def _controller_context(self) -> dict[str, Any]:
         cmd = self._current_command()
         target = self._mat.circle_at(cmd.row, cmd.col)
-        return {
+        ctx: dict[str, Any] = {
             "command": cmd.to_dict(),
             "target_circle": target.to_dict(),
             "joints": self._sim.get_joint_angles_deg(),
@@ -308,16 +309,56 @@ class TwisterEnv(BaseEnv):
             "torso": self._sim.get_torso_state(),
             "placement_radius": self._active_placement_radius(),
         }
+        if self._phase2 is not None:
+            ctx["locked_limbs"] = self._phase2.constraints.to_dict()
+            ctx["turn"] = self._phase2.turn
+        return ctx
 
     def _active_placement_radius(self) -> float:
         if self._placement_radius_override is not None:
             return float(self._placement_radius_override)
         return float(PLACEMENT_RADIUS)
 
+    def _rehold_locked_limbs(self, *, skip_limb: str | None = None) -> None:
+        if self._phase2 is None:
+            return
+        locked_specs: list[tuple[str, float, float]] = []
+        for item in self._phase2.constraints.locked:
+            if item.limb == skip_limb:
+                continue
+            circle = self._mat.circle_at(item.row, item.col)
+            locked_specs.append((item.limb, circle.x, circle.y))
+        if locked_specs:
+            self._reach.rehold_locked(locked_specs, skip_limb=skip_limb)
+
     def _apply_action(self, parsed: dict[str, Any]) -> None:
         """Apply agent action with optional IK assist and smooth target tracking."""
+        cmd = self._current_command()
+        locked_snapshot: dict[str, float] = {}
+        if self._phase2 is not None:
+            ee = self._sim.get_end_effector_positions()
+            for item in self._phase2.constraints.locked:
+                if item.limb != cmd.limb:
+                    circle = self._mat.circle_at(item.row, item.col)
+                    locked_snapshot[item.limb] = round(
+                        placement_error(ee[item.limb], circle), 4
+                    )
+        # #region agent log
+        _dbg(
+            "env.py:_apply_action",
+            "action_applied",
+            {
+                "action_keys": sorted(parsed.keys()),
+                "use_ik": bool(parsed.get("use_ik")),
+                "active_limb": cmd.limb,
+                "active_target": [cmd.row, cmd.col, cmd.color],
+                "locked_count": len(self._phase2.constraints.locked) if self._phase2 else 0,
+                "locked_errors_before": locked_snapshot,
+            },
+            "H1",
+        )
+        # #endregion
         if parsed.get("use_ik"):
-            cmd = self._current_command()
             target = self._mat.circle_at(cmd.row, cmd.col)
             anchor_limbs: list[str] | None = None
             if self._phase2 is not None:
@@ -330,6 +371,29 @@ class TwisterEnv(BaseEnv):
                 target.y,
                 anchor_limbs=anchor_limbs,
             )
+            if locked_snapshot:
+                ee_after = self._sim.get_end_effector_positions()
+                drift: dict[str, float] = {}
+                for item in self._phase2.constraints.locked:  # type: ignore[union-attr]
+                    if item.limb == cmd.limb:
+                        continue
+                    circle = self._mat.circle_at(item.row, item.col)
+                    drift[item.limb] = round(placement_error(ee_after[item.limb], circle), 4)
+                # #region agent log
+                _dbg(
+                    "env.py:_apply_action",
+                    "locked_drift_after_ik",
+                    {
+                        "active_limb": cmd.limb,
+                        "before": locked_snapshot,
+                        "after": drift,
+                        "delta": {
+                            k: round(drift[k] - locked_snapshot[k], 4) for k in locked_snapshot
+                        },
+                    },
+                    "H1",
+                )
+                # #endregion
             return
 
         self._sim.set_active_reach(None)
@@ -524,19 +588,7 @@ def joint_schema_for_prompt() -> dict[str, Any]:
 
 def action_schema_for_prompt() -> dict[str, Any]:
     return {
-        "target_circle": (
-            "PREFERRED high-level action: [row, col] of the circle to place the "
-            "spun limb on. The env runs balanced IK to move the limb there over "
-            "many physics steps. Defaults to the commanded circle if omitted."
-        ),
-        "target_xyz": (
-            "Optional high-level alternative to target_circle: {x, y} (meters) or "
-            "[x, y] coordinate to drive the spun limb toward via built-in IK."
-        ),
-        "rationale": "optional free-text note on why you picked that circle (ignored by physics)",
-        "repeat_until_placed": "bool (default true) — keep running IK until placed or max_steps",
-        "tolerance_m": f"high-level/controller success radius in meters (default {PLACEMENT_RADIUS})",
-        "joint_targets": "dict of joint_name -> angle in degrees (advanced manual control)",
+        "joint_targets": "dict of joint_name -> angle in degrees",
         "delta": "optional bool; if true, values are per-step changes (default false)",
         "max_delta": f"optional max change per step when delta=true (default {MAX_DELTA_DEG})",
         "follow_ik": "optional bool; blend your targets with observation.ik_suggestion",

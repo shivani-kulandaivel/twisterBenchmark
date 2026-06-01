@@ -123,6 +123,8 @@ class Spinner:
         *,
         limb_weights: dict[str, float] | None = None,
         forbidden_circles: set[tuple[int, int]] | None = None,
+        limb_positions: dict[str, dict[str, float]] | None = None,
+        locked_limbs: list[str] | None = None,
     ) -> TwisterCommand:
         """Sample a command with reachability-aware rejection.
 
@@ -138,8 +140,9 @@ class Spinner:
                 if self._is_reasonably_reachable(limb, c)
                 and (forbidden_circles is None or (c.row, c.col) not in forbidden_circles)
             ]
+            candidates = self._filter_crossbody(limb, candidates, locked_limbs)
             if candidates:
-                circle = self._rng.choice(candidates)
+                circle = self._pick_nearest_candidate(limb, candidates, limb_positions)
                 return TwisterCommand(limb=limb, color=color, row=circle.row, col=circle.col)
 
         # Fallback: pick from globally easiest cells.
@@ -150,7 +153,9 @@ class Spinner:
                     self._is_reasonably_reachable(limb, circle)
                     and (forbidden_circles is None or (circle.row, circle.col) not in forbidden_circles)
                 ):
-                    feasible.append((limb, color, circle))
+                    filtered = self._filter_crossbody(limb, [circle], locked_limbs)
+                    if filtered:
+                        feasible.append((limb, color, circle))
         if feasible:
             limb, color, circle = self._rng.choice(feasible)
             return TwisterCommand(limb=limb, color=color, row=circle.row, col=circle.col)
@@ -159,6 +164,44 @@ class Spinner:
         limb, color = self._weighted_option(options, limb_weights)
         circle = self._rng.choice(mat.circles_by_color(color))
         return TwisterCommand(limb=limb, color=color, row=circle.row, col=circle.col)
+
+    def _pick_nearest_candidate(
+        self,
+        limb: str,
+        candidates: list[Circle],
+        limb_positions: dict[str, dict[str, float]] | None,
+    ) -> Circle:
+        if not limb_positions or limb not in limb_positions:
+            return self._rng.choice(candidates)
+        pos = limb_positions[limb]
+        ranked = sorted(
+            candidates,
+            key=lambda c: math.hypot(c.x - float(pos["x"]), c.y - float(pos["y"])),
+        )
+        pool = ranked[: min(3, len(ranked))]
+        return self._rng.choice(pool)
+
+    @staticmethod
+    def _filter_crossbody(
+        limb: str,
+        candidates: list[Circle],
+        locked_limbs: list[str] | None,
+    ) -> list[Circle]:
+        if not locked_limbs or not candidates:
+            return candidates
+        locked = set(locked_limbs)
+        filtered: list[Circle] = []
+        for circle in candidates:
+            if limb == "left_hand" and "right_foot" in locked and circle.x > 0.15:
+                continue
+            if limb == "right_hand" and "left_foot" in locked and circle.x < -0.15:
+                continue
+            if limb == "left_hand" and "left_foot" in locked and circle.x < -0.28:
+                continue
+            if limb == "right_hand" and "right_foot" in locked and circle.x > 0.28:
+                continue
+            filtered.append(circle)
+        return filtered or candidates
 
     def _weighted_option(
         self,

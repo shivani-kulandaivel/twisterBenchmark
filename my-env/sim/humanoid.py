@@ -70,9 +70,13 @@ class HumanoidSim:
             for name in ("left_foot_geom", "right_foot_geom")
         ]
         self._floor_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
-        # Bodies whose contact with the floor counts as a collapse (NOT feet/hands;
-        # limbs may touch during deep hip bends and all-fours Twister poses).
-        _collapse_bodies = ("pelvis", "torso", "head")
+        # Bodies whose contact with the floor counts as a collapse (NOT feet,
+        # NOT forearms/hands — those are legal contact points in Twister).
+        _collapse_bodies = (
+            "pelvis", "lumbar", "torso", "head",
+            "left_thigh", "right_thigh", "left_shin", "right_shin",
+            "left_upper_arm", "right_upper_arm",
+        )
         self._collapse_body_ids = {
             mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, b) for b in _collapse_bodies
         }
@@ -296,6 +300,7 @@ class HumanoidSim:
         """A Twister 'fall' is a collapse: a non-hand/foot body part touching the
         mat, the head/pelvis dropping to the floor, or the body tumbling out of
         control. Bending, crouching, or going on all fours is allowed."""
+        reaching = self._active_reach_limb is not None
         # 1) Collapse contact: a 'core' body geom touches the floor.
         floor = self._floor_geom_id
         for c in self.data.contact[: self.data.ncon]:
@@ -307,11 +312,13 @@ class HumanoidSim:
             if body in self._collapse_body_ids:
                 return True
         # 2) Pelvis/head dropped near the floor (face-plant / sat down hard).
-        if float(self.data.xpos[self._pelvis_id][2]) < 0.28:
+        pelvis_thresh = 0.28 if reaching else 0.32
+        if float(self.data.xpos[self._pelvis_id][2]) < pelvis_thresh:
             return True
         # 3) Tumbling: large angular velocity of the root.
         wr = self.data.qvel[self._root_qvel_idx + 3 : self._root_qvel_idx + 6]
-        if float(np.linalg.norm(wr)) > 12.0:
+        tumble_thresh = 14.0 if reaching else 12.0
+        if float(np.linalg.norm(wr)) > tumble_thresh:
             return True
         return False
 

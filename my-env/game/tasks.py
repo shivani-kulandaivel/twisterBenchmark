@@ -41,7 +41,7 @@ class Phase2State:
     max_turns: int = 10
     limb_weights: dict[str, float] | None = None
 
-    def advance_turn(self) -> None:
+    def advance_turn(self, end_effectors: dict[str, dict[str, float]] | None = None) -> None:
         self.turns_completed += 1
         self.turn += 1
         forbidden = {
@@ -49,10 +49,13 @@ class Phase2State:
             for item in self.constraints.locked
             if item.limb != self.command.limb
         }
+        locked_limbs = [item.limb for item in self.constraints.locked]
         self.command = self.spinner.spin(
             self.mat,
             limb_weights=self.limb_weights,
             forbidden_circles=forbidden,
+            limb_positions=end_effectors,
+            locked_limbs=locked_limbs,
         )
 
     def record_error(self, error: float) -> None:
@@ -180,6 +183,32 @@ def evaluate_phase2_step(
         state.mat,
         ignore_limb=state.command.limb,
     )
+    # #region agent log
+    from debug_log import dbg
+
+    locked_errs: dict[str, float] = {}
+    for item in state.constraints.locked:
+        if item.limb == state.command.limb:
+            continue
+        circle = state.mat.circle_at(item.row, item.col)
+        locked_errs[item.limb] = round(
+            placement_error(sim.get_end_effector_positions()[item.limb], circle), 4
+        )
+    dbg(
+        "tasks.py:evaluate_phase2_step",
+        "phase2_eval",
+        {
+            "turn": state.turn,
+            "active_limb": state.command.limb,
+            "active_error": round(error, 4),
+            "active_placed": is_placed(limb_pos, target, radius),
+            "locked_errors": locked_errs,
+            "violations": violations,
+            "fall": sim.has_fallen(),
+        },
+        "H3",
+    )
+    # #endregion
     if violations:
         return False, True, 0.0, "locked_limb_slipped"
 
@@ -187,7 +216,7 @@ def evaluate_phase2_step(
         state.constraints.lock(state.command)
         if state.turns_completed + 1 >= state.max_turns:
             return True, True, 1.5, "max_turns"
-        state.advance_turn()
+        state.advance_turn(sim.get_end_effector_positions())
         return True, False, 1.5, None
 
     return False, False, max(0.0, 0.2 - error), None

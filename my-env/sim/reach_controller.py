@@ -100,21 +100,22 @@ class ReachController:
 
     def primary_joints(self, limb: str) -> list[str]:
         side = "left" if limb.startswith("left") else "right"
+        spine = ["lumbar_pitch", "lumbar_roll", "thoracic_pitch", "thoracic_yaw"]
         if limb.endswith("hand"):
             return [
                 f"{side}_shoulder_pitch",
                 f"{side}_shoulder_roll",
                 f"{side}_elbow",
-                "abdomen_pitch",
-                f"{side}_hip_pitch",
-                f"{side}_hip_roll",
+                *spine,
             ]
         return [
             f"{side}_hip_pitch",
             f"{side}_hip_roll",
+            f"{side}_hip_yaw",
             f"{side}_knee",
             f"{side}_ankle",
-            "abdomen_pitch",
+            "lumbar_pitch",
+            "lumbar_roll",
         ]
 
     def suggest_targets(
@@ -153,6 +154,70 @@ class ReachController:
             data.qvel[:] = saved_qvel
             mujoco.mj_forward(sim.model, data)
 
+    def _limb_chain_joints(self, limb: str) -> list[str]:
+        side = "left" if limb.startswith("left") else "right"
+        if limb.endswith("hand"):
+            return [f"{side}_shoulder_pitch", f"{side}_shoulder_roll", f"{side}_elbow"]
+        return [
+            f"{side}_hip_pitch",
+            f"{side}_hip_roll",
+            f"{side}_hip_yaw",
+            f"{side}_knee",
+            f"{side}_ankle",
+        ]
+
+    def correct_limb_xy(self, limb: str, target_x: float, target_y: float, *, iters: int = 14) -> None:
+        """Post-physics kinematic correction to keep a locked limb on its circle."""
+        sim = self._sim
+        model, data = sim.model, sim.data
+        tz = self.contact_z(limb)
+        target = np.array([target_x, target_y, tz], dtype=np.float64)
+        site_id = sim._site_ids[limb]
+        chain = self._limb_chain_joints(limb)
+        cols = np.array(
+            [
+                model.jnt_dofadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, n)]
+                for n in chain
+            ],
+            dtype=np.int32,
+        )
+        for _ in range(iters):
+            mujoco.mj_forward(model, data)
+            err = target - data.site_xpos[site_id]
+            if float(np.linalg.norm(err[:2])) < 0.006:
+                break
+            jp = np.zeros((3, model.nv))
+            jr = np.zeros((3, model.nv))
+            mujoco.mj_jacSite(model, data, jp, jr, site_id)
+            dq = self._dls(jp[:, cols], damping=0.14) @ err
+            dq = np.clip(dq, -math.radians(3.5), math.radians(3.5))
+            for name, d in zip(chain, dq):
+                idx = sim._joint_qpos_idx[name]
+                lo = math.radians(JOINT_SCHEMA[name]["low"])
+                hi = math.radians(JOINT_SCHEMA[name]["high"])
+                data.qpos[idx] = float(np.clip(data.qpos[idx] + d, lo, hi))
+                sim._targets[name] = math.degrees(data.qpos[idx])
+        mujoco.mj_forward(model, data)
+
+    def rehold_limb(self, limb: str, target_x: float, target_y: float) -> None:
+        """Keep a locked end-effector on its circle using local joint corrections."""
+        ee = self._sim.get_end_effector_positions()[limb]
+        dist_xy = math.hypot(target_x - ee["x"], target_y - ee["y"])
+        if dist_xy < 0.006:
+            return
+        self.correct_limb_xy(limb, target_x, target_y)
+
+    def rehold_locked(
+        self,
+        locked: list[tuple[str, float, float]],
+        *,
+        skip_limb: str | None = None,
+    ) -> None:
+        for limb, x, y in locked:
+            if limb == skip_limb:
+                continue
+            self.rehold_limb(limb, x, y)
+
     def _planted_foot_sites(self, limb: str) -> list[int]:
         sim = self._sim
         feet = ["left_foot", "right_foot"]
@@ -184,7 +249,13 @@ class ReachController:
     ) -> None:
         """Advance one control step: rate-limit current targets toward the balanced IK pose."""
         if limb.endswith("hand"):
-            self._apply_hand_step(limb, target_x, target_y, max_joint_rate=max_joint_rate)
+            self._apply_hand_step(
+                limb,
+                target_x,
+                target_y,
+                max_joint_rate=max_joint_rate,
+                anchor_limbs=anchor_limbs,
+            )
             return
 
         # Tell the balance controller which foot is planted and to weight-shift
@@ -220,13 +291,30 @@ class ReachController:
             dist_xy=dist_xy,
             dx=target_x - ee["x"],
             dy=target_y - ee["y"],
+            locked=bool(anchor_limbs),
+            frozen_limbs=set(anchor_limbs or []),
         )
         current = self._sim.get_joint_targets_deg()
         stepped: dict[str, float] = {}
-        joint_rate = max_joint_rate + (2.0 if limb.endswith("foot") else 0.0)
+        joint_rate = max_joint_rate + (1.0 if limb.endswith("foot") else 0.0)
+        if dist_xy > 0.35:
+            joint_rate = max(joint_rate, 5.0)
+        elif dist_xy > 0.20:
+            joint_rate = max(joint_rate, 3.8)
+        if anchor_limbs:
+            joint_rate *= 0.78
+        leg_spine = {
+            "lumbar_pitch", "lumbar_roll", "thoracic_pitch",
+            f"{limb.split('_')[0]}_hip_pitch",
+            f"{limb.split('_')[0]}_hip_roll",
+            f"{limb.split('_')[0]}_hip_yaw",
+            f"{limb.split('_')[0]}_knee",
+            f"{limb.split('_')[0]}_ankle",
+        }
         for name, g in goal.items():
             c = current.get(name, JOINT_SCHEMA[name]["neutral"])
-            stepped[name] = c + float(np.clip(g - c, -joint_rate, joint_rate))
+            rate = joint_rate * (1.1 if name in leg_spine else 0.65)
+            stepped[name] = c + float(np.clip(g - c, -rate, rate))
         # Smooth updates over physics substeps for fluid, human-like motion.
         self._sim.set_targets_smooth(stepped)
 
@@ -237,75 +325,141 @@ class ReachController:
         target_y: float,
         *,
         max_joint_rate: float,
+        anchor_limbs: list[str] | None = None,
     ) -> None:
-        """Dedicated hand controller.
+        """Hand reach: closed-chain IK goal + rate-limited tracking.
 
-        The whole-body closed-chain solver is useful for foot placement, but it
-        can over-constrain arm motion. For hands we use a direct Jacobian step
-        on arm + trunk joints so the hand visibly translates toward the target
-        every turn.
+        A single Jacobian step cannot cover large workspace gaps in one turn;
+        the planted-foot IK solver plans spine/arm motion, then we rate-limit
+        toward that pose. A small local Jacobian nudge keeps motion visible
+        per step when locked limbs constrain the whole-body solve.
         """
+        sim = self._sim
+        ee = sim.get_end_effector_positions()[limb]
+        dist_xy = math.hypot(target_x - ee["x"], target_y - ee["y"])
+        locked = bool(anchor_limbs)
+        if dist_xy > 0.18:
+            tz = min(0.35, 0.25 + 0.35 * min(1.0, (dist_xy - 0.18) / 0.25))
+        elif dist_xy > 0.12:
+            tz = 0.14
+        else:
+            tz = self.contact_z(limb)
+
+        lean = self._lean_bias(limb, target_x, target_y)
+        support_pts: list[tuple[float, float]] | None = None
+        if anchor_limbs:
+            all_ee = sim.get_end_effector_positions()
+            support_pts = [
+                (all_ee[a]["x"], all_ee[a]["y"]) for a in anchor_limbs if a in all_ee
+            ] or None
+        sim.set_active_reach(limb, lean, support_override_xy=support_pts)
+
+        ik_iters = 48 if dist_xy < 0.20 else (24 if locked else 36)
+        goal = self.suggest_targets(
+            limb,
+            target_x,
+            target_y,
+            ik_iterations=ik_iters,
+            anchor_limbs=anchor_limbs,
+            target_z=tz,
+        )
+        self._inject_hip_bend_fallback(
+            goal,
+            limb=limb,
+            dist_xy=dist_xy,
+            dx=target_x - ee["x"],
+            dy=target_y - ee["y"],
+            locked=locked,
+            frozen_limbs=set(anchor_limbs or []),
+        )
+        if dist_xy > 0.12:
+            goal = self._hand_jacobian_nudge(
+                limb, target_x, target_y, tz, goal, locked=locked, max_joint_rate=max_joint_rate
+            )
+
+        current = sim.get_joint_targets_deg()
+        joint_rate = max_joint_rate
+        if dist_xy > 0.40:
+            joint_rate = max(joint_rate, 6.0)
+        elif dist_xy > 0.25:
+            joint_rate = max(joint_rate, 4.5)
+        elif dist_xy < 0.12:
+            joint_rate *= 0.85
+        elif dist_xy < 0.20:
+            joint_rate *= 0.92
+        if locked:
+            joint_rate *= 0.72
+        arm_spine = {
+            "lumbar_pitch", "lumbar_roll", "thoracic_pitch", "thoracic_yaw",
+            f"{limb.split('_')[0]}_shoulder_pitch",
+            f"{limb.split('_')[0]}_shoulder_roll",
+            f"{limb.split('_')[0]}_elbow",
+        }
+        stepped: dict[str, float] = {}
+        for name, g in goal.items():
+            c = current.get(name, JOINT_SCHEMA[name]["neutral"])
+            rate = joint_rate * (1.15 if name in arm_spine else 0.55)
+            stepped[name] = c + float(np.clip(g - c, -rate, rate))
+        sim.set_targets_smooth(stepped)
+
+    def _hand_jacobian_nudge(
+        self,
+        limb: str,
+        target_x: float,
+        target_y: float,
+        target_z: float,
+        goal: dict[str, float],
+        *,
+        locked: bool,
+        max_joint_rate: float,
+    ) -> dict[str, float]:
+        """Small arm+spine Jacobian correction blended into the IK goal."""
         sim = self._sim
         model, data = sim.model, sim.data
         side = "left" if limb.startswith("left") else "right"
         joint_names = [
-            "abdomen_pitch",
+            "lumbar_pitch",
+            "lumbar_roll",
+            "thoracic_pitch",
+            "thoracic_yaw",
             f"{side}_shoulder_pitch",
             f"{side}_shoulder_roll",
             f"{side}_elbow",
-            "left_hip_pitch",
-            "right_hip_pitch",
-            "left_hip_roll",
-            "right_hip_roll",
-            "left_knee",
-            "right_knee",
         ]
         cols = np.array(
             [model.jnt_dofadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, n)] for n in joint_names],
             dtype=np.int32,
         )
         site_id = sim._site_ids[limb]
-        ee = sim.get_end_effector_positions()[limb]
-        dist_xy = math.hypot(target_x - ee["x"], target_y - ee["y"])
-        dx = target_x - ee["x"]
-        dy = target_y - ee["y"]
-        # Move in two phases: hover while far, then drop onto the circle.
-        tz = 0.24 if dist_xy > 0.18 else self.contact_z(limb)
-        target = np.array([target_x, target_y, tz], dtype=np.float64)
+        target = np.array([target_x, target_y, target_z], dtype=np.float64)
 
-        # Hand reaches benefit from a bit more CoM shift.
-        sim.set_active_reach(limb, self._lean_bias(limb, target_x, target_y))
+        saved_qpos = data.qpos.copy()
+        for name in JOINT_SCHEMA:
+            data.qpos[sim._joint_qpos_idx[name]] = math.radians(goal.get(name, JOINT_SCHEMA[name]["neutral"]))
+        mujoco.mj_forward(model, data)
 
         jp = np.zeros((3, model.nv))
         jr = np.zeros((3, model.nv))
         mujoco.mj_jacSite(model, data, jp, jr, site_id)
-        j = jp[:, cols]
         err = target - data.site_xpos[site_id]
         n = np.linalg.norm(err)
-        if n > 0.08:
-            err = err * (0.08 / n)
-
-        dq = self._dls(j, damping=0.12) @ err
-        max_rad = math.radians(max(2.5, max_joint_rate))
+        max_cart = 0.035 if locked else 0.045
+        if n > max_cart:
+            err = err * (max_cart / n)
+        damping = 0.18 if locked else 0.12
+        dq = self._dls(jp[:, cols], damping=damping) @ err
+        max_rad = math.radians(max(1.5 if locked else 2.0, max_joint_rate * 0.55))
         dq = np.clip(dq, -max_rad, max_rad)
 
-        current = sim.get_joint_targets_deg()
-        stepped = {}
-        for name, d in zip(joint_names, dq):
-            stepped[name] = current.get(name, JOINT_SCHEMA[name]["neutral"]) + math.degrees(float(d))
-        self._inject_hip_bend_fallback(
-            stepped,
-            limb=limb,
-            dist_xy=dist_xy,
-            dx=dx,
-            dy=dy,
-        )
-        sim.set_targets_smooth(stepped)
+        data.qpos[:] = saved_qpos
+        mujoco.mj_forward(model, data)
 
-    @staticmethod
-    def _clip_joint(name: str, value: float) -> float:
-        spec = JOINT_SCHEMA[name]
-        return float(np.clip(value, spec["low"], spec["high"]))
+        blend = 0.35 if locked else 0.50
+        out = dict(goal)
+        for name, d in zip(joint_names, dq):
+            base = goal.get(name, JOINT_SCHEMA[name]["neutral"])
+            out[name] = base + blend * math.degrees(float(d))
+        return out
 
     def _inject_hip_bend_fallback(
         self,
@@ -315,65 +469,111 @@ class ReachController:
         dist_xy: float,
         dx: float,
         dy: float,
+        locked: bool = False,
+        frozen_limbs: set[str] | None = None,
     ) -> None:
-        """Hinge at hips/torso when the target is hard to reach.
+        """If end-effector progress is hard, proactively bend at hips/torso.
 
-        Combines forward/back bend and lateral hip twist so the figure moves
-        like a person leaning and rotating at the hips instead of staying rigid.
+        Hands prefer spine folding; feet prefer hip hinge. Keeps bends below
+        tipping thresholds and scales down when other limbs are locked (phase 2).
         """
-        # Forward/back hip + trunk hinge (engages only on genuinely far reaches
-        # so close, easy targets keep a natural near-upright posture).
-        if dist_xy >= 0.22:
-            bend = min(28.0, 8.0 + 48.0 * (dist_xy - 0.22))
-            if dy >= 0.0:
-                targets["left_hip_pitch"] = self._clip_joint(
-                    "left_hip_pitch", min(targets.get("left_hip_pitch", 0.0), -bend)
-                )
-                targets["right_hip_pitch"] = self._clip_joint(
-                    "right_hip_pitch", max(targets.get("right_hip_pitch", 0.0), bend)
-                )
-                targets["abdomen_pitch"] = self._clip_joint(
-                    "abdomen_pitch", min(targets.get("abdomen_pitch", 0.0), -0.45 * bend)
-                )
-            else:
-                targets["left_hip_pitch"] = self._clip_joint(
-                    "left_hip_pitch", max(targets.get("left_hip_pitch", 0.0), bend)
-                )
-                targets["right_hip_pitch"] = self._clip_joint(
-                    "right_hip_pitch", min(targets.get("right_hip_pitch", 0.0), -bend)
-                )
-                targets["abdomen_pitch"] = self._clip_joint(
-                    "abdomen_pitch", max(targets.get("abdomen_pitch", 0.0), 0.45 * bend)
-                )
-            if limb.endswith("foot"):
-                knee_bend = min(28.0, 8.0 + 0.45 * bend)
-                targets["left_knee"] = self._clip_joint(
-                    "left_knee", max(targets.get("left_knee", 0.0), knee_bend)
-                )
-                targets["right_knee"] = self._clip_joint(
-                    "right_knee", max(targets.get("right_knee", 0.0), knee_bend)
-                )
+        frozen = frozen_limbs or set()
 
-        # Gentle lateral hip lean toward sideways targets adds whole-body
-        # variety (left/right weight shift) without over-rotating the trunk.
-        if dist_xy >= 0.16 and abs(dx) > 0.04:
-            twist = min(18.0, 30.0 * (abs(dx) - 0.04))
-            if dx > 0.0:
-                targets["left_hip_roll"] = self._clip_joint(
-                    "left_hip_roll", max(targets.get("left_hip_roll", 0.0), twist)
-                )
+        def _frozen_side(side: str) -> bool:
+            return any(l.startswith(side) for l in frozen)
+
+        def _set_joint(name: str, value: float) -> None:
+            side = "left" if name.startswith("left") else "right" if name.startswith("right") else ""
+            if side and _frozen_side(side) and any(
+                l.startswith(side) and l.endswith(("foot", "hand")) for l in frozen
+            ):
+                return
+            targets[name] = value
+
+        threshold = 0.30 if limb.endswith("hand") else 0.26
+        if dist_xy < threshold:
+            return
+
+        is_hand = limb.endswith("hand")
+        max_bend = 14.0 if is_hand else 20.0
+        if locked:
+            max_bend *= 0.75
+        bend = min(max_bend, 4.0 + 34.0 * (dist_xy - threshold))
+        sign = 1.0 if dy >= 0.0 else -1.0
+
+        if is_hand:
+            lp = sign * -0.60 * bend
+            tp = sign * -0.40 * bend
+            _set_joint(
+                "lumbar_pitch",
+                min(targets.get("lumbar_pitch", 0.0), lp)
+                if sign > 0.0
+                else max(targets.get("lumbar_pitch", 0.0), lp),
+            )
+            _set_joint(
+                "thoracic_pitch",
+                min(targets.get("thoracic_pitch", 0.0), tp)
+                if sign > 0.0
+                else max(targets.get("thoracic_pitch", 0.0), tp),
+            )
+            hip_frac = 0.22 * bend
+            if sign > 0.0:
+                _set_joint("left_hip_pitch", min(targets.get("left_hip_pitch", 0.0), -hip_frac))
+                _set_joint("right_hip_pitch", max(targets.get("right_hip_pitch", 0.0), hip_frac))
             else:
-                targets["right_hip_roll"] = self._clip_joint(
-                    "right_hip_roll", min(targets.get("right_hip_roll", 0.0), -twist)
-                )
+                _set_joint("left_hip_pitch", max(targets.get("left_hip_pitch", 0.0), hip_frac))
+                _set_joint("right_hip_pitch", min(targets.get("right_hip_pitch", 0.0), -hip_frac))
+        elif sign > 0.0:
+            _set_joint("left_hip_pitch", min(targets.get("left_hip_pitch", 0.0), -bend))
+            _set_joint("right_hip_pitch", max(targets.get("right_hip_pitch", 0.0), bend))
+            _set_joint("lumbar_pitch", min(targets.get("lumbar_pitch", 0.0), -0.40 * bend))
+            _set_joint("thoracic_pitch", min(targets.get("thoracic_pitch", 0.0), -0.22 * bend))
+        else:
+            _set_joint("left_hip_pitch", max(targets.get("left_hip_pitch", 0.0), bend))
+            _set_joint("right_hip_pitch", min(targets.get("right_hip_pitch", 0.0), -bend))
+            _set_joint("lumbar_pitch", max(targets.get("lumbar_pitch", 0.0), 0.40 * bend))
+            _set_joint("thoracic_pitch", max(targets.get("thoracic_pitch", 0.0), 0.22 * bend))
+
+        if abs(dx) > 0.10:
+            lateral = min(10.0, 7.0 * abs(dx))
+            if locked:
+                lateral *= 0.7
+            roll_sign = 1.0 if dx >= 0.0 else -1.0
+            cur = targets.get("lumbar_roll", 0.0)
+            blended = 0.55 * cur + 0.45 * roll_sign * lateral
+            _set_joint("lumbar_roll", float(np.clip(blended, -18.0, 18.0)))
+
+        reach_xy = math.hypot(dx, dy)
+        if reach_xy > 0.14:
+            twist = min(14.0, 10.0 * reach_xy)
+            if locked:
+                twist *= 0.65
+            yaw_sign = math.copysign(1.0, dx) if abs(dx) > 0.05 else math.copysign(1.0, dy)
+            for hip_yaw in ("left_hip_yaw", "right_hip_yaw"):
+                cur = targets.get(hip_yaw, 0.0)
+                _set_joint(hip_yaw, cur + yaw_sign * 0.18 * twist)
+            _set_joint(
+                "thoracic_yaw",
+                targets.get("thoracic_yaw", 0.0) + yaw_sign * 0.22 * twist,
+            )
+
+        if limb.endswith("foot"):
+            knee_bend = min(22.0, 6.0 + 0.35 * bend)
+            _set_joint("left_knee", max(targets.get("left_knee", 0.0), knee_bend))
+            _set_joint("right_knee", max(targets.get("right_knee", 0.0), knee_bend))
 
     def _lean_bias(self, limb: str, target_x: float, target_y: float) -> tuple[float, float]:
         """Shift the CoM target toward the reach, clamped to the support margin."""
-        sx, sy = self._sim.support_center_xy()  # current (already includes prior bias=0 at call time)
-        # Direction from current support center toward the target.
+        sx, sy = self._sim.support_center_xy()
         dx, dy = target_x - sx, target_y - sy
-        # Allow a modest weight shift; hands lean more than feet (feet need a planted base).
-        max_x, max_y = (0.22, 0.16) if limb.endswith("hand") else (0.08, 0.06)
+        max_x, max_y = (0.20, 0.14) if limb.endswith("hand") else (0.08, 0.06)
+        if limb.endswith("hand"):
+            joints = self._sim.get_joint_angles_deg()
+            spine_bend = abs(joints.get("lumbar_pitch", 0.0)) + abs(joints.get("thoracic_pitch", 0.0))
+            if spine_bend > 8.0:
+                scale = max(0.40, 1.0 - 0.035 * (spine_bend - 8.0))
+                max_x *= scale
+                max_y *= scale
         return (float(np.clip(dx, -max_x, max_x)), float(np.clip(dy, -max_y, max_y)))
 
     # ---- internals ------------------------------------------------------
@@ -386,7 +586,8 @@ class ReachController:
     # Max Cartesian step per IK iteration (m). Keeps the linearization valid so
     # large reaches (hand from shoulder height down to the floor) converge
     # smoothly instead of overshooting.
-    _MAX_CART_STEP = 0.04
+    _MAX_CART_STEP_HAND = 0.038
+    _MAX_CART_STEP_FOOT = 0.032
 
     def _ik_step(self, limb: str, target_pos: np.ndarray, planted_anchor: dict[int, np.ndarray]) -> None:
         """One closed-chain damped-least-squares IK iteration (mutates
@@ -423,10 +624,12 @@ class ReachController:
         j_t = jp[:, ik]
         err_t = target_pos - data.site_xpos[sim._site_ids[limb]]
         n = np.linalg.norm(err_t)
-        if n > self._MAX_CART_STEP:
-            err_t = err_t * (self._MAX_CART_STEP / n)
+        max_cart = self._MAX_CART_STEP_HAND if limb.endswith("hand") else self._MAX_CART_STEP_FOOT
+        if n > max_cart:
+            err_t = err_t * (max_cart / n)
         j_t_ns = j_t @ null_c
-        j_t_ns_pinv = self._dls(j_t_ns, damping=0.06)
+        reach_damp = 0.075 if limb.endswith("hand") else 0.085
+        j_t_ns_pinv = self._dls(j_t_ns, damping=reach_damp)
         dq_t = null_c @ (j_t_ns_pinv @ (err_t - j_t @ dq_c))
 
         # --- Posture + base regularization in the remaining null space ---
@@ -436,24 +639,55 @@ class ReachController:
         up = data.xmat[self._pelvis_id].reshape(3, 3)[:, 2]
         rest = np.cross(up, _Z_UP)
         root_z = float(data.qpos[self._root_qpos + 2])
+        spine_pitch = ("lumbar_pitch", "thoracic_pitch")
+        spine_lateral = ("lumbar_roll", "thoracic_yaw")
+        hip_yaw_names = ("left_hip_yaw", "right_hip_yaw")
         if limb.endswith("hand"):
-            # Pike strategy: keep the pelvis HIGH and let the trunk fold forward
-            # (don't fight pelvis pitch), so only hands + feet touch the floor.
-            sec[3] = 0.0          # allow forward/back pelvis pitch (the fold)
-            sec[4] = 0.8 * rest[1]  # strongly resist sideways (roll) tipping
-            sec[5] = 0.8 * rest[2]
-            sec[2] = 1.6 * (0.74 - root_z)  # strongly prefer a tall pelvis
-            # bias knees toward straight (pike, not squat)
+            sec[3] = 0.0
+            sec[4] = 0.55 * rest[1]
+            sec[5] = 0.55 * rest[2]
+            sec[2] = 1.35 * (0.74 - root_z)
+            for sn in spine_pitch:
+                idx = 6 + self._name_to_hinge[sn]
+                sec[idx] = 0.018 * (
+                    self._q_neutral[self._name_to_hinge[sn]]
+                    - data.qpos[self._hinge_qpos_idx[self._name_to_hinge[sn]]]
+                )
+            for sn in spine_lateral:
+                idx = 6 + self._name_to_hinge[sn]
+                sec[idx] = 0.04 * (
+                    self._q_neutral[self._name_to_hinge[sn]]
+                    - data.qpos[self._hinge_qpos_idx[self._name_to_hinge[sn]]]
+                )
             for kn in ("left_knee", "right_knee"):
-                sec[6 + self._name_to_hinge[kn]] += 0.15 * (0.0 - data.qpos[self._hinge_qpos_idx[self._name_to_hinge[kn]]])
+                sec[6 + self._name_to_hinge[kn]] += 0.18 * (
+                    0.0 - data.qpos[self._hinge_qpos_idx[self._name_to_hinge[kn]]]
+                )
+            for hn in hip_yaw_names:
+                idx = 6 + self._name_to_hinge[hn]
+                sec[idx] = 0.05 * (
+                    self._q_neutral[self._name_to_hinge[hn]]
+                    - data.qpos[self._hinge_qpos_idx[self._name_to_hinge[hn]]]
+                )
         else:
-            sec[3:6] = 0.8 * rest
-            sec[2] = 0.7 * (0.62 - root_z)
+            sec[3:6] = 0.65 * rest
+            sec[2] = 0.55 * (0.62 - root_z)
+            for sn in spine_pitch:
+                idx = 6 + self._name_to_hinge[sn]
+                sec[idx] = 0.025 * (
+                    self._q_neutral[self._name_to_hinge[sn]]
+                    - data.qpos[self._hinge_qpos_idx[self._name_to_hinge[sn]]]
+                )
+            for sn in (*spine_lateral, *hip_yaw_names):
+                idx = 6 + self._name_to_hinge[sn]
+                sec[idx] = 0.06 * (
+                    self._q_neutral[self._name_to_hinge[sn]]
+                    - data.qpos[self._hinge_qpos_idx[self._name_to_hinge[sn]]]
+                )
         dq_post = null_t @ sec
 
-        # Always apply the full constraint correction; only rate-limit the reach
-        # and posture so clipping can never let the planted feet drift.
-        dq_rp = np.clip(dq_t + dq_post, -_MAX_DQ, _MAX_DQ)
+        max_dq = _MAX_DQ if limb.endswith("hand") else math.radians(3.5)
+        dq_rp = np.clip(dq_t + dq_post, -max_dq, max_dq)
         dq_full = np.zeros(model.nv)
         dq_full[ik] = dq_c + dq_rp
         mujoco.mj_integratePos(model, data.qpos, dq_full, 1.0)

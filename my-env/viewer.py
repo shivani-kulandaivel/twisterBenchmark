@@ -35,38 +35,51 @@ LIMB_COLORS: dict[str, tuple[float, float, float, float]] = {
     "right_foot": (0.2, 0.8, 0.4, 0.95),
 }
 
-VISUAL_GEOM_GROUP = 1
-COLLISION_GEOM_GROUP = 3
-
 
 class MatHighlighter:
     """Highlight target and locked circles on the Twister mat."""
+
+    _DIM_FACTOR = 0.42
 
     def __init__(self, model: mujoco.MjModel) -> None:
         self._model = model
         self._base_rgba: dict[int, tuple[float, float, float, float]] = {}
         self._geom_ids: dict[tuple[int, int], int] = {}
+        self._all_gids: list[int] = []
         for row in range(len(MAT_ROWS)):
             for col in range(6):
                 name = f"mat_r{row}_c{col}"
                 gid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name)
                 if gid >= 0:
                     self._geom_ids[(row, col)] = gid
+                    self._all_gids.append(gid)
                     self._base_rgba[gid] = tuple(model.geom_rgba[gid])
         self._target_gid: int | None = None
         self._locked_gids: set[int] = set()
+
+    def _dim_others(self) -> None:
+        active = set(self._locked_gids)
+        if self._target_gid is not None:
+            active.add(self._target_gid)
+        for gid in self._all_gids:
+            if gid in active:
+                continue
+            r, g, b, a = self._base_rgba[gid]
+            self._model.geom_rgba[gid] = (r * self._DIM_FACTOR, g * self._DIM_FACTOR, b * self._DIM_FACTOR, a)
 
     def set_target(self, row: int | None, col: int | None) -> None:
         if self._target_gid is not None:
             self._model.geom_rgba[self._target_gid] = self._base_rgba[self._target_gid]
             self._target_gid = None
         if row is None or col is None:
+            self._dim_others()
             return
         gid = self._geom_ids.get((row, col))
         if gid is None:
             return
         self._target_gid = gid
         self._model.geom_rgba[gid] = (1.0, 1.0, 1.0, 1.0)
+        self._dim_others()
 
     def set_locked(self, locked: list[dict[str, Any]]) -> None:
         for gid in self._locked_gids:
@@ -76,8 +89,15 @@ class MatHighlighter:
             row, col = item["circle"]
             gid = self._geom_ids.get((row, col))
             if gid is not None and gid != self._target_gid:
-                self._model.geom_rgba[gid] = (1.0, 0.55, 0.0, 1.0)
+                base = self._base_rgba[gid]
+                self._model.geom_rgba[gid] = (
+                    min(1.0, base[0] * 1.15),
+                    base[1] * 0.55,
+                    base[2] * 0.2,
+                    1.0,
+                )
                 self._locked_gids.add(gid)
+        self._dim_others()
 
 
 def _add_marker(
@@ -107,25 +127,36 @@ def _draw_markers(
     limb: str | None,
     limb_pos: dict[str, float] | None,
     locked: list[dict[str, Any]] | None = None,
+    placement_error_m: float | None = None,
 ) -> None:
     scn = viewer.user_scn
     scn.ngeom = 0
     idx = 0
 
     if target:
+        tx, ty = target["x"], target["y"]
         idx = _add_marker(
             scn,
             idx,
-            (target["x"], target["y"], 0.05),
-            (1.0, 1.0, 0.0, 0.85),
-            size=0.055,
+            (tx, ty, 0.014),
+            (1.0, 1.0, 1.0, 0.55),
+            size=PLACEMENT_RADIUS,
+            geom_type=mujoco.mjtGeom.mjGEOM_CYLINDER,
         )
         idx = _add_marker(
             scn,
             idx,
-            (target["x"], target["y"], 0.002),
-            (1.0, 1.0, 1.0, 0.35),
-            size=PLACEMENT_RADIUS,
+            (tx, ty, 0.018),
+            (1.0, 1.0, 0.2, 0.95),
+            size=0.04,
+        )
+        idx = _add_marker(
+            scn,
+            idx,
+            (tx, ty, 0.022),
+            (1.0, 1.0, 1.0, 0.9),
+            size=0.088,
+            geom_type=mujoco.mjtGeom.mjGEOM_CYLINDER,
         )
 
     for item in locked or []:
@@ -139,20 +170,40 @@ def _draw_markers(
         idx = _add_marker(
             scn,
             idx,
-            (c.x, c.y, 0.03),
-            (1.0, 0.5, 0.0, 0.5),
-            size=0.04,
+            (c.x, c.y, 0.016),
+            (1.0, 0.45, 0.0, 0.75),
+            size=0.085,
+            geom_type=mujoco.mjtGeom.mjGEOM_CYLINDER,
         )
 
     if limb and limb_pos:
-        rgba = LIMB_COLORS.get(limb, (0.9, 0.2, 0.9, 0.95))
+        err = float(placement_error_m) if placement_error_m is not None else None
+        if err is not None and err <= PLACEMENT_RADIUS:
+            limb_rgba = (0.2, 0.95, 0.35, 0.95)
+        elif err is not None and err <= PLACEMENT_RADIUS * 2.0:
+            limb_rgba = (1.0, 0.85, 0.15, 0.95)
+        else:
+            limb_rgba = LIMB_COLORS.get(limb, (0.9, 0.2, 0.9, 0.95))
         idx = _add_marker(
             scn,
             idx,
             (limb_pos["x"], limb_pos["y"], limb_pos["z"]),
-            rgba,
+            limb_rgba,
             size=0.05,
         )
+        if target and err is not None and err > 0.02:
+            mid_x = (limb_pos["x"] + target["x"]) * 0.5
+            mid_y = (limb_pos["y"] + target["y"]) * 0.5
+            mid_z = max(limb_pos["z"], 0.04) * 0.5
+            seg_len = max(0.02, err * 0.5)
+            idx = _add_marker(
+                scn,
+                idx,
+                (mid_x, mid_y, mid_z),
+                (1.0, 0.3, 0.3, 0.7),
+                size=seg_len,
+                geom_type=mujoco.mjtGeom.mjGEOM_CAPSULE,
+            )
 
     scn.ngeom = idx
 
@@ -186,23 +237,17 @@ def _obs_from_result(result: Any) -> dict[str, Any]:
 
 
 def _naive_action(obs: dict[str, Any]) -> dict[str, Any]:
-    """One IK physics step per viewer frame.
-
-    Do not use controller mode here: each controller step can run up to
-    max_steps inner physics iterations, which exhausts PHASE2_MAX_STEPS (~200)
-    in a couple of viewer frames and ends the episode with reason \"timeout\".
-    """
-    del obs
+    """One IK step per viewer frame; env handles pursuit if repeat_until_placed is set."""
     return {"use_ik": True}
 
 
 def _apply_render_quality(model: mujoco.MjModel, quality: str) -> None:
-    model.vis.global_.glow = 0.0
     if quality != "high":
         return
     model.vis.global_.offwidth = max(model.vis.global_.offwidth, 1920)
     model.vis.global_.offheight = max(model.vis.global_.offheight, 1080)
     model.vis.quality.shadowsize = max(model.vis.quality.shadowsize, 8192)
+    model.vis.global_.glow = 0.0
 
 
 def _setup_camera(viewer: mujoco.viewer.Handle) -> None:
@@ -212,19 +257,15 @@ def _setup_camera(viewer: mujoco.viewer.Handle) -> None:
     viewer.cam.lookat[:] = (0.0, 0.0, 0.85)
 
 
-def _setup_visual(
-    viewer: mujoco.viewer.Handle,
-    *,
-    quality: str = "standard",
-    show_collision: bool = False,
-) -> None:
+def _setup_visual(viewer: mujoco.viewer.Handle, *, quality: str = "standard") -> None:
     _setup_camera(viewer)
-    viewer.opt.frame = mujoco.mjtFrame.mjFRAME_WORLD
+    viewer.opt.frame = mujoco.mjtFrame.mjFRAME_NONE
     viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = False
-    for i in range(len(viewer.opt.geomgroup)):
-        viewer.opt.geomgroup[i] = 1
-    viewer.opt.geomgroup[VISUAL_GEOM_GROUP] = 1
-    viewer.opt.geomgroup[COLLISION_GEOM_GROUP] = 1 if show_collision else 0
+    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_JOINT] = False
+    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = False
+    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTFORCE] = False
+    viewer.opt.geomgroup[1] = 1
+    viewer.opt.geomgroup[3] = 0
     if quality == "high":
         viewer.opt.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = True
         viewer.opt.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = True
@@ -245,12 +286,15 @@ def _sync_viewer(
     while viewer.is_running() and time.time() < deadline:
         target = obs.get("target_circle") if obs else None
         limb_pos = obs["end_effectors"].get(limb) if obs and limb else None
+        err_raw = obs.get("placement_error") if obs else None
+        err_f = float(err_raw) if err_raw is not None else None
         _draw_markers(
             viewer,
             target=target,
             limb=limb,
             limb_pos=limb_pos,
             locked=locked,
+            placement_error_m=err_f,
         )
         viewer.sync()
         time.sleep(0.01)
@@ -294,7 +338,18 @@ def _advance_demo_spin(env: TwisterEnv, obs: dict[str, Any]) -> dict[str, Any]:
     """Advance to the next spinner command (demo pacing when a turn is missed)."""
     state = env._phase2
     assert state is not None
-    state.command = state.spinner.spin(state.mat)
+    locked_limbs = [item["limb"] for item in obs.get("locked_limbs", []) if "limb" in item]
+    state.command = state.spinner.spin(
+        state.mat,
+        limb_weights=state.limb_weights,
+        forbidden_circles={
+            (item["circle"][0], item["circle"][1])
+            for item in obs.get("locked_limbs", [])
+            if item.get("circle")
+        },
+        limb_positions=obs.get("end_effectors"),
+        locked_limbs=locked_limbs,
+    )
     state.turn += 1
     target = state.mat.circle_at(state.command.row, state.command.col)
     limb_pos = env._sim.get_end_effector_positions()[state.command.limb]
@@ -320,7 +375,6 @@ def run_spins(
     pause_sec: float,
     steps_per_turn: int,
     render_quality: str = "standard",
-    show_collision: bool = False,
 ) -> None:
     sim = env._sim
     _apply_render_quality(sim.model, render_quality)
@@ -333,7 +387,7 @@ def run_spins(
     print("Close the MuJoCo window to exit.\n", flush=True)
 
     with mujoco.viewer.launch_passive(sim.model, sim.data) as viewer:
-        _setup_visual(viewer, quality=render_quality, show_collision=show_collision)
+        _setup_visual(viewer, quality=render_quality)
 
         while viewer.is_running() and not terminated and turn <= num_spins:
             cmd = obs["command"]
@@ -366,8 +420,9 @@ def run_spins(
                     break
                 result = env.step(_naive_action(obs))
                 obs = _obs_from_result(result)
-                err = obs.get("placement_error", 999)
-                placed = err != "?" and float(err) <= PLACEMENT_RADIUS
+                err_raw = obs.get("placement_error", 999)
+                err_f = float(err_raw) if err_raw != "?" else None
+                placed = err_f is not None and err_f <= PLACEMENT_RADIUS
 
                 _draw_markers(
                     viewer,
@@ -375,6 +430,7 @@ def run_spins(
                     limb=limb,
                     limb_pos=obs["end_effectors"].get(limb),
                     locked=obs.get("locked_limbs"),
+                    placement_error_m=err_f,
                 )
                 viewer.sync()
                 time.sleep(0.04)
@@ -424,8 +480,6 @@ def run_spins(
                     break
 
             if placed:
-                if obs["turn"] <= turn and turn < num_spins:
-                    obs = _advance_demo_spin(env, obs)
                 turn = obs["turn"]
             elif turn < num_spins:
                 obs = _advance_demo_spin(env, obs)
@@ -444,7 +498,6 @@ def run_replay(
     speed: float,
     loop: bool,
     render_quality: str = "standard",
-    show_collision: bool = False,
 ) -> None:
     sim = env._sim
     _apply_render_quality(sim.model, render_quality)
@@ -457,7 +510,7 @@ def run_replay(
     print(f"Replaying {len(actions)} steps. Close the MuJoCo window to exit.\n")
 
     with mujoco.viewer.launch_passive(sim.model, sim.data) as viewer:
-        _setup_visual(viewer, quality=render_quality, show_collision=show_collision)
+        _setup_visual(viewer, quality=render_quality)
         action_idx = 0
         last_advance = time.time()
 
@@ -494,7 +547,6 @@ def run_demo(
     speed: float,
     max_steps: int,
     render_quality: str = "standard",
-    show_collision: bool = False,
 ) -> None:
     sim = env._sim
     _apply_render_quality(sim.model, render_quality)
@@ -505,7 +557,7 @@ def run_demo(
         highlighter.set_target(target["row"], target["col"])
 
     with mujoco.viewer.launch_passive(sim.model, sim.data) as viewer:
-        _setup_visual(viewer, quality=render_quality, show_collision=show_collision)
+        _setup_visual(viewer, quality=render_quality)
         last_step = time.time()
         step_num = 0
 
@@ -540,7 +592,7 @@ def main() -> None:
     parser.add_argument("--demo", action="store_true", help="Single-turn heuristic demo")
     parser.add_argument("--spins", type=int, default=5, help="Number of Twister spins (default mode)")
     parser.add_argument("--pause", type=float, default=3.0, help="Seconds between spin and move")
-    parser.add_argument("--steps-per-turn", type=int, default=120, help="Max physics steps per move")
+    parser.add_argument("--steps-per-turn", type=int, default=160, help="Max physics steps per move")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--speed", type=float, default=1.0, help="Replay speed multiplier")
     parser.add_argument("--loop", action="store_true", help="Loop trace replay")
@@ -550,11 +602,6 @@ def main() -> None:
         choices=("standard", "high"),
         default="high",
         help="Visual quality (high enables shadows, skybox, 1080p offscreen buffer)",
-    )
-    parser.add_argument(
-        "--show-collision",
-        action="store_true",
-        help="Render collision geoms (group 3) in addition to visual geoms",
     )
     args = parser.parse_args()
 
@@ -575,7 +622,6 @@ def main() -> None:
             speed=args.speed,
             loop=args.loop,
             render_quality=args.quality,
-            show_collision=args.show_collision,
         )
         return
 
@@ -586,7 +632,6 @@ def main() -> None:
             speed=args.speed,
             max_steps=args.max_steps,
             render_quality=args.quality,
-            show_collision=args.show_collision,
         )
         return
 
@@ -597,7 +642,6 @@ def main() -> None:
         pause_sec=args.pause,
         steps_per_turn=args.steps_per_turn,
         render_quality=args.quality,
-        show_collision=args.show_collision,
     )
 
 

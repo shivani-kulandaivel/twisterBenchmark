@@ -2,6 +2,14 @@
   <compiler angle="degree" coordinate="local" inertiafromgeom="false"/>
   <option gravity="0 0 -9.81" timestep="0.01" integrator="RK4"/>
 
+  <visual>
+    <global offwidth="1280" offheight="960" elevation="-20" azimuth="135"/>
+    <quality shadowsize="4096" offsamples="8"/>
+    <headlight ambient="0.35 0.35 0.4" diffuse="0.5 0.5 0.5" specular="0.2 0.2 0.2"/>
+    <map shadowclip="2.5" znear="0.02" zfar="40"/>
+    <rgba haze="0.85 0.89 0.95 1"/>
+  </visual>
+
   <default>
     <joint limited="true" damping="4" armature="0.04"/>
     <geom friction="1.2 0.05 0.005" condim="3" margin="0.002" solref="0.02 1" solimp="0.9 0.95 0.001"/>
@@ -9,13 +17,18 @@
   </default>
 
   <asset>
-    <texture name="grid" type="2d" builtin="checker" width="512" height="512" rgb1="0.2 0.3 0.4" rgb2="0.3 0.4 0.5"/>
-    <material name="grid" texture="grid" texrepeat="8 8" reflectance="0.1"/>
+    <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.32 0.45 0.62" rgb2="0.08 0.10 0.18" width="512" height="512"/>
+    <texture name="grid" type="2d" builtin="checker" width="512" height="512" rgb1="0.86 0.88 0.92" rgb2="0.70 0.74 0.82" mark="edge" markrgb="0.55 0.58 0.66"/>
+    <material name="grid" texture="grid" texrepeat="12 12" reflectance="0.18" shininess="0.3" specular="0.4"/>
+    <material name="skin" rgba="0.92 0.76 0.66 1" specular="0.3" shininess="0.4" reflectance="0.05"/>
+    <material name="shirt" rgba="0.20 0.42 0.85 1" specular="0.5" shininess="0.5" reflectance="0.12"/>
+    <material name="pants" rgba="0.16 0.20 0.40 1" specular="0.4" shininess="0.4" reflectance="0.1"/>
   </asset>
 
   <worldbody>
-    <light pos="0 0 4" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
-    <geom name="floor" type="plane" size="4 4 0.1" material="grid" rgba="0.85 0.85 0.85 1"/>
+    <light name="key" pos="2.5 -1.5 4.5" dir="-0.45 0.3 -1" directional="false" diffuse="0.7 0.7 0.68" specular="0.3 0.3 0.3" castshadow="true"/>
+    <light name="fill" pos="-2.5 2.0 3.0" dir="0.5 -0.4 -1" directional="false" diffuse="0.3 0.32 0.4" castshadow="false"/>
+    <geom name="floor" type="plane" size="6 6 0.1" material="grid"/>
 
     <!-- Twister mat (visual only, no collision) -->
     <geom name="twister_mat" type="box" size="1.15 0.8 0.012" pos="0 0 -0.012" rgba="0.96 0.96 0.94 1" contype="0" conaffinity="0"/>
@@ -44,20 +57,22 @@
     <geom name="mat_r3_c4" type="cylinder" size="0.12 0.006" pos="0.525 0.525 0.006" rgba="0.15 0.35 0.85 1" contype="0" conaffinity="0"/>
     <geom name="mat_r3_c5" type="cylinder" size="0.12 0.006" pos="0.875 0.525 0.006" rgba="0.15 0.35 0.85 1" contype="0" conaffinity="0"/>
 
+    <camera name="showcase" pos="2.3 1.95 1.15" xyaxes="-0.75 0.66 0 -0.25 -0.28 0.93" fovy="42"/>
+
     <body name="pelvis" pos="0 0 0.92">
       <freejoint name="root"/>
       <inertial mass="14" pos="0 0 -0.03" diaginertia="0.12 0.10 0.08"/>
-      <geom name="pelvis_geom" type="capsule" size="0.08" fromto="0 0 -0.02 0 0 0.06" rgba="0.2 0.2 0.7 1"/>
+      <geom name="pelvis_geom" type="capsule" size="0.08" fromto="0 0 -0.02 0 0 0.06" material="shirt"/>
 
       <body name="torso" pos="0 0 0.08">
         <joint name="abdomen_pitch" type="hinge" axis="1 0 0" range="-25 25" damping="6"/>
         <inertial mass="12" pos="0 0 0.12" diaginertia="0.30 0.26 0.16"/>
-        <geom name="torso_geom" type="capsule" size="0.10" fromto="0 0 0 0 0 0.32" rgba="0.25 0.25 0.75 1"/>
+        <geom name="torso_geom" type="capsule" size="0.10" fromto="0 0 0 0 0 0.32" material="shirt"/>
         <site name="torso_top" pos="0 0 0.32" size="0.02"/>
 
         <body name="head" pos="0 0 0.34">
           <inertial mass="4" pos="0 0 0" diaginertia="0.04 0.04 0.03"/>
-          <geom name="head_geom" type="sphere" size="0.10" rgba="0.9 0.75 0.65 1"/>
+          <geom name="head_geom" type="sphere" size="0.10" material="skin"/>
         </body>
 
         <!-- Left arm -->
@@ -65,11 +80,11 @@
           <joint name="left_shoulder_pitch" type="hinge" axis="0 1 0" range="-140 140"/>
           <joint name="left_shoulder_roll" type="hinge" axis="1 0 0" range="-110 30"/>
           <inertial mass="2.0" pos="0.11 0 0" diaginertia="0.02 0.02 0.01"/>
-          <geom type="capsule" size="0.04" fromto="0 0 0 0.22 0 0" rgba="0.9 0.75 0.65 1"/>
+          <geom type="capsule" size="0.04" fromto="0 0 0 0.22 0 0" material="skin"/>
           <body name="left_forearm" pos="0.22 0 0">
             <joint name="left_elbow" type="hinge" axis="0 1 0" range="-5 145"/>
             <inertial mass="1.2" pos="0.10 0 0" diaginertia="0.01 0.01 0.005"/>
-            <geom type="capsule" size="0.035" fromto="0 0 0 0.20 0 0" rgba="0.9 0.75 0.65 1"/>
+            <geom type="capsule" size="0.035" fromto="0 0 0 0.20 0 0" material="skin"/>
             <site name="left_hand" pos="0.20 0 0" size="0.03" rgba="1 0 0 1"/>
           </body>
         </body>
@@ -79,11 +94,11 @@
           <joint name="right_shoulder_pitch" type="hinge" axis="0 1 0" range="-140 140"/>
           <joint name="right_shoulder_roll" type="hinge" axis="1 0 0" range="-30 110"/>
           <inertial mass="2.0" pos="-0.11 0 0" diaginertia="0.02 0.02 0.01"/>
-          <geom type="capsule" size="0.04" fromto="0 0 0 -0.22 0 0" rgba="0.9 0.75 0.65 1"/>
+          <geom type="capsule" size="0.04" fromto="0 0 0 -0.22 0 0" material="skin"/>
           <body name="right_forearm" pos="-0.22 0 0">
             <joint name="right_elbow" type="hinge" axis="0 1 0" range="-5 145"/>
             <inertial mass="1.2" pos="-0.10 0 0" diaginertia="0.01 0.01 0.005"/>
-            <geom type="capsule" size="0.035" fromto="0 0 0 -0.20 0 0" rgba="0.9 0.75 0.65 1"/>
+            <geom type="capsule" size="0.035" fromto="0 0 0 -0.20 0 0" material="skin"/>
             <site name="right_hand" pos="-0.20 0 0" size="0.03" rgba="0 0 1 1"/>
           </body>
         </body>
@@ -94,15 +109,15 @@
         <joint name="left_hip_pitch" type="hinge" axis="0 1 0" range="-110 35"/>
         <joint name="left_hip_roll" type="hinge" axis="1 0 0" range="-35 35"/>
         <inertial mass="6.0" pos="0 0 -0.16" diaginertia="0.08 0.08 0.03"/>
-        <geom type="capsule" size="0.05" fromto="0 0 0 0 0 -0.34" rgba="0.15 0.15 0.6 1"/>
+        <geom type="capsule" size="0.05" fromto="0 0 0 0 0 -0.34" material="pants"/>
         <body name="left_shin" pos="0 0 -0.34">
           <joint name="left_knee" type="hinge" axis="0 1 0" range="-5 135"/>
           <inertial mass="4.0" pos="0 0 -0.15" diaginertia="0.05 0.05 0.02"/>
-          <geom type="capsule" size="0.045" fromto="0 0 0 0 0 -0.32" rgba="0.15 0.15 0.6 1"/>
+          <geom type="capsule" size="0.045" fromto="0 0 0 0 0 -0.32" material="pants"/>
           <body name="left_foot_body" pos="0 0 -0.32">
             <joint name="left_ankle" type="hinge" axis="0 1 0" range="-35 35"/>
             <inertial mass="2.5" pos="0.05 0 -0.02" diaginertia="0.008 0.015 0.015"/>
-            <geom name="left_foot_geom" type="box" size="0.11 0.07 0.025" pos="0.05 0 -0.025" rgba="0.1 0.1 0.5 1"/>
+            <geom name="left_foot_geom" type="box" size="0.11 0.07 0.025" pos="0.05 0 -0.025" material="pants"/>
             <site name="left_foot" pos="0.09 0 -0.025" size="0.03" rgba="1 0.5 0 1"/>
           </body>
         </body>
@@ -113,15 +128,15 @@
         <joint name="right_hip_pitch" type="hinge" axis="0 1 0" range="-110 35"/>
         <joint name="right_hip_roll" type="hinge" axis="1 0 0" range="-35 35"/>
         <inertial mass="6.0" pos="0 0 -0.16" diaginertia="0.08 0.08 0.03"/>
-        <geom type="capsule" size="0.05" fromto="0 0 0 0 0 -0.34" rgba="0.15 0.15 0.6 1"/>
+        <geom type="capsule" size="0.05" fromto="0 0 0 0 0 -0.34" material="pants"/>
         <body name="right_shin" pos="0 0 -0.34">
           <joint name="right_knee" type="hinge" axis="0 1 0" range="-5 135"/>
           <inertial mass="4.0" pos="0 0 -0.15" diaginertia="0.05 0.05 0.02"/>
-          <geom type="capsule" size="0.045" fromto="0 0 0 0 0 -0.32" rgba="0.15 0.15 0.6 1"/>
+          <geom type="capsule" size="0.045" fromto="0 0 0 0 0 -0.32" material="pants"/>
           <body name="right_foot_body" pos="0 0 -0.32">
             <joint name="right_ankle" type="hinge" axis="0 1 0" range="-35 35"/>
             <inertial mass="2.5" pos="-0.05 0 -0.02" diaginertia="0.008 0.015 0.015"/>
-            <geom name="right_foot_geom" type="box" size="0.11 0.07 0.025" pos="-0.05 0 -0.025" rgba="0.1 0.1 0.5 1"/>
+            <geom name="right_foot_geom" type="box" size="0.11 0.07 0.025" pos="-0.05 0 -0.025" material="pants"/>
             <site name="right_foot" pos="-0.09 0 -0.025" size="0.03" rgba="0 0.5 1 1"/>
           </body>
         </body>

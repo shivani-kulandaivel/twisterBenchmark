@@ -37,9 +37,11 @@ TORSO_BODY = "torso"
 PHYSICS_SUBSTEPS = 20
 PHYSICS_TIMESTEP = 0.01
 
-# Fall detection thresholds (tilt-based; floating pelvis with free joint).
-MIN_TORSO_HEIGHT = 0.55
-MAX_TORSO_TILT_DEG = 55.0
+# Fall detection thresholds. The pelvis is kinematically anchored (can lean but
+# not topple), so these are relaxed — a "fall" now means a genuinely collapsed
+# pose, not a deep lean/crouch toward the mat.
+MIN_TORSO_HEIGHT = 0.42
+MAX_TORSO_TILT_DEG = 72.0
 
 # Placement validation.
 PLACEMENT_RADIUS = 0.08

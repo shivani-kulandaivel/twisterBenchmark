@@ -28,6 +28,17 @@ class Phase1State:
 
 
 @dataclass
+class MultiPlacementState:
+    """Phase-1 variant: several limbs must be placed on their targets at once."""
+    commands: list[TwisterCommand]
+    step_count: int = 0
+    mean_errors: list[float] = field(default_factory=list)
+
+    def record_error(self, error: float) -> None:
+        self.mean_errors.append(error)
+
+
+@dataclass
 class Phase2State:
     mat: TwisterMat
     spinner: Spinner
@@ -76,11 +87,75 @@ def build_observation(
         "turn": turn,
         "upright": sim.is_upright(),
         "torso": sim.get_torso_state(),
+        "physics_state": {"qpos": sim.get_qpos()},
     }
     if placement_error_m is not None:
         obs["placement_error"] = round(placement_error_m, 4)
         obs["placement_radius"] = PLACEMENT_RADIUS
     return obs
+
+
+def build_multi_observation(
+    *,
+    sim: HumanoidSim,
+    mat: TwisterMat,
+    commands: list[TwisterCommand],
+    placement_errors: list[float] | None,
+) -> dict[str, Any]:
+    end_effectors = sim.get_end_effector_positions()
+    for limb in LIMBS:
+        pos = end_effectors[limb]
+        pos["on_mat"] = pos["z"] <= 0.25
+
+    targets = [mat.circle_at(c.row, c.col) for c in commands]
+    obs: dict[str, Any] = {
+        "phase": 1,
+        "multi": True,
+        "num_targets": len(commands),
+        "commands": [c.to_dict() for c in commands],
+        "targets": [t.to_dict() for t in targets],
+        "joints": sim.get_joint_angles_deg(),
+        "joint_targets": sim.get_joint_targets_deg(),
+        "end_effectors": end_effectors,
+        "mat": mat.to_dict(),
+        "upright": sim.is_upright(),
+        "torso": sim.get_torso_state(),
+        "physics_state": {"qpos": sim.get_qpos()},
+    }
+    if placement_errors is not None:
+        obs["placement_errors"] = [round(e, 4) for e in placement_errors]
+        obs["placement_radius"] = PLACEMENT_RADIUS
+    return obs
+
+
+def evaluate_multi_step(
+    state: MultiPlacementState,
+    sim: HumanoidSim,
+    mat: TwisterMat,
+) -> tuple[bool, bool, float, str | None, list[float]]:
+    """Returns (all_placed, terminated, reward, reason, per_limb_errors)."""
+    end_effectors = sim.get_end_effector_positions()
+    errors: list[float] = []
+    placed_flags: list[bool] = []
+    for cmd in state.commands:
+        target = mat.circle_at(cmd.row, cmd.col)
+        limb_pos = end_effectors[cmd.limb]
+        err = placement_error(limb_pos, target)
+        errors.append(err)
+        placed_flags.append(is_placed(limb_pos, target))
+
+    mean_err = sum(errors) / len(errors)
+    state.record_error(mean_err)
+
+    if sim.has_fallen():
+        return False, True, 0.0, "fall", errors
+
+    if all(placed_flags):
+        return True, True, 1.0, "success", errors
+
+    # Partial credit: fraction placed + proximity of the rest.
+    proximity = sum(max(0.0, 1.0 - e / 0.5) for e in errors) / len(errors)
+    return False, False, proximity, None, errors
 
 
 def evaluate_phase1_step(

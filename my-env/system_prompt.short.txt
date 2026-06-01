@@ -1,0 +1,1 @@
+Respond with ONLY JSON: {"joint_targets": {"joint_name": degrees}}. Move the limb in command.instruction toward target_circle (x,y). Minimize placement_error. Joints: left/right_shoulder_pitch, left/right_shoulder_roll, left/right_elbow, left/right_hip_pitch, left/right_knee, abdomen_pitch.

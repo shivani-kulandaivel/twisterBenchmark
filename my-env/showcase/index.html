@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TWISTER-BOT // REPLAY</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0d0221;
+      --bg2: #1a0b3d;
+      --panel: #160a33;
+      --panel-2: #1f1147;
+      --ink: #2a1659;
+      --border: #00f0ff;
+      --border-dim: #5a3a9e;
+      --text: #f6e9ff;
+      --muted: #b08fff;
+      --cyan: #00f0ff;
+      --magenta: #ff2e97;
+      --yellow: #ffd23f;
+      --green: #2bff9e;
+      --red: #ff4d5e;
+      --shadow: 6px 6px 0 #000;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: "VT323", monospace;
+      font-size: 19px;
+      margin: 0;
+      color: var(--text);
+      background:
+        repeating-linear-gradient(0deg, transparent 0 38px, rgba(255,46,151,0.04) 38px 39px),
+        repeating-linear-gradient(90deg, transparent 0 38px, rgba(0,240,255,0.04) 38px 39px),
+        radial-gradient(900px 600px at 80% -10%, #2a0b5e, transparent 60%),
+        radial-gradient(900px 600px at -10% 110%, #3d0b4e, transparent 55%),
+        var(--bg);
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      letter-spacing: 0.5px;
+    }
+    /* CRT scanlines + vignette overlay */
+    body::after {
+      content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+      background:
+        repeating-linear-gradient(rgba(0,0,0,0) 0 2px, rgba(0,0,0,0.16) 2px 4px),
+        radial-gradient(120% 120% at 50% 50%, transparent 60%, rgba(0,0,0,0.45) 100%);
+      mix-blend-mode: multiply;
+    }
+    .pixel { font-family: "Press Start 2P", monospace; letter-spacing: 0; }
+
+    /* ---------- Header ---------- */
+    header {
+      display: flex; align-items: center; gap: 1.1rem;
+      padding: 0.9rem 1.3rem;
+      background: var(--panel);
+      border-bottom: 4px solid var(--magenta);
+      box-shadow: 0 6px 0 #000;
+      position: sticky; top: 0; z-index: 20;
+    }
+    .brand { display: flex; align-items: center; gap: 0.75rem; }
+    .brand .logo {
+      width: 44px; height: 44px;
+      background: var(--magenta); color: #14002b;
+      display: grid; place-items: center;
+      font-family: "Press Start 2P", monospace; font-size: 1.2rem;
+      border: 3px solid #fff; box-shadow: 4px 4px 0 #000;
+    }
+    .brand h1 {
+      font-family: "Press Start 2P", monospace; font-size: 0.9rem; margin: 0;
+      color: var(--cyan); text-shadow: 2px 2px 0 var(--magenta), 0 0 12px rgba(0,240,255,0.6);
+    }
+    .brand small { color: var(--yellow); font-size: 1rem; text-transform: uppercase; }
+
+    .episode-select {
+      background: var(--ink); color: var(--cyan);
+      border: 3px solid var(--cyan); box-shadow: 4px 4px 0 #000;
+      padding: 0.5rem 0.7rem; font-family: "VT323", monospace; font-size: 1.05rem;
+      cursor: pointer; max-width: 380px; outline: none; text-transform: uppercase;
+    }
+    .episode-select:hover { background: var(--panel-2); }
+
+    .controls { display: flex; align-items: center; gap: 0.9rem; flex: 1; }
+    .play-btn {
+      width: 46px; height: 46px; border: 3px solid #fff; cursor: pointer;
+      background: var(--green); color: #04210f; font-size: 1.1rem;
+      display: grid; place-items: center; box-shadow: 4px 4px 0 #000;
+      font-family: "Press Start 2P", monospace;
+    }
+    .play-btn:hover { background: var(--cyan); }
+    .play-btn:active { transform: translate(4px, 4px); box-shadow: 0 0 0 #000; }
+    .scrubber { flex: 1; display: flex; align-items: center; gap: 0.75rem; }
+    input[type=range] {
+      -webkit-appearance: none; appearance: none; height: 14px; flex: 1;
+      background: var(--ink); outline: none; cursor: pointer;
+      border: 3px solid var(--border-dim); box-shadow: inset 0 0 0 2px #000;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 18px; height: 22px;
+      background: var(--yellow); border: 3px solid #000; box-shadow: 2px 2px 0 #000;
+    }
+    .step-counter {
+      font-family: "Press Start 2P", monospace; font-size: 0.65rem;
+      color: var(--yellow); min-width: 110px; text-align: right;
+    }
+    .icon-btn, .file-btn {
+      font-family: "Press Start 2P", monospace; font-size: 0.62rem;
+      color: var(--text); border: 3px solid var(--border-dim); background: var(--ink);
+      padding: 0.6rem 0.7rem; cursor: pointer; box-shadow: 4px 4px 0 #000; text-transform: uppercase;
+    }
+    .icon-btn { color: var(--yellow); border-color: var(--yellow); width: 46px; }
+    .icon-btn:hover, .file-btn:hover { background: var(--panel-2); }
+    .icon-btn:active, .file-btn:active { transform: translate(4px,4px); box-shadow: 0 0 0 #000; }
+    #file { display: none; }
+
+    /* ---------- Layout ---------- */
+    .layout {
+      display: grid; grid-template-columns: 240px 1fr 360px; gap: 1.1rem;
+      padding: 1.1rem 1.3rem 1.8rem; flex: 1; min-height: 0;
+    }
+    .card {
+      background: var(--panel);
+      border: 3px solid var(--border-dim);
+      box-shadow: var(--shadow);
+    }
+    .card-title {
+      font-family: "Press Start 2P", monospace; font-size: 0.62rem; line-height: 1.5;
+      text-transform: uppercase; color: var(--cyan); margin: 0 0 0.8rem;
+      text-shadow: 2px 2px 0 #000;
+      border-bottom: 2px dashed var(--border-dim); padding-bottom: 0.5rem;
+    }
+
+    /* ---------- Steps sidebar ---------- */
+    aside { padding: 0.9rem; overflow-y: auto; max-height: calc(100vh - 120px); }
+    .step-btn {
+      display: flex; align-items: center; gap: 0.5rem; width: 100%; text-align: left;
+      padding: 0.45rem 0.6rem; margin-bottom: 0.45rem;
+      border: 3px solid var(--ink); background: var(--panel-2); color: var(--text);
+      cursor: pointer; font-family: "VT323", monospace; font-size: 1.05rem;
+      box-shadow: 3px 3px 0 #000; text-transform: uppercase;
+    }
+    .step-btn:hover { border-color: var(--cyan); }
+    .step-btn.active {
+      border-color: var(--magenta); background: var(--ink);
+      box-shadow: 3px 3px 0 var(--magenta);
+    }
+    .step-btn .num { font-size: 0.95rem; }
+    .step-btn .rw { margin-left: auto; color: var(--yellow); }
+    .pill { width: 12px; height: 12px; flex: none; border: 2px solid #000; }
+
+    /* ---------- Main ---------- */
+    main { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
+    .stage { padding: 0.8rem; position: relative; }
+    .stage-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.7rem; gap: 0.6rem; }
+    .stage-head .cmd {
+      font-family: "Press Start 2P", monospace; font-size: 0.7rem; line-height: 1.6;
+      color: var(--yellow); text-shadow: 2px 2px 0 #000; display: flex; align-items: center;
+    }
+    .badge {
+      font-family: "Press Start 2P", monospace; font-size: 0.58rem;
+      padding: 0.45rem 0.6rem; border: 3px solid #000; white-space: nowrap;
+    }
+    .badge.up { background: var(--green); color: #04210f; }
+    .badge.down { background: var(--red); color: #2b0205; }
+    #humanoid {
+      display: block; width: 100%; background: #050912; aspect-ratio: 4 / 3; object-fit: contain;
+      border: 3px solid var(--ink); image-rendering: auto;
+    }
+    .mat-wrap { padding: 0.9rem; }
+    #mat { display: block; width: 100%; max-width: 620px; margin: 0 auto; border: 3px solid var(--ink); }
+    .legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.8rem; font-size: 1rem; color: var(--muted); justify-content: center; text-transform: uppercase; }
+    .legend span { display: inline-flex; align-items: center; }
+    .dot { width: 14px; height: 14px; display: inline-block; margin-right: 6px; border: 2px solid #000; }
+
+    /* ---------- Detail panel ---------- */
+    .panel { padding: 0.9rem; overflow-y: auto; max-height: calc(100vh - 120px); display: flex; flex-direction: column; gap: 1.1rem; }
+    .stat-row { display: flex; gap: 0.7rem; }
+    .stat { flex: 1; background: var(--ink); border: 3px solid var(--border-dim); padding: 0.55rem 0.7rem; }
+    .stat .label { font-family: "Press Start 2P", monospace; font-size: 0.5rem; color: var(--muted); text-transform: uppercase; }
+    .stat .value { font-size: 1.7rem; color: var(--green); }
+    .goal-card { border: 3px solid var(--ink); padding: 0.6rem 0.7rem; margin-bottom: 0.6rem; background: var(--panel-2); box-shadow: 3px 3px 0 #000; }
+    .goal-card .top { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.45rem; }
+    .goal-card .limb-name { font-family: "Press Start 2P", monospace; font-size: 0.58rem; text-transform: uppercase; color: var(--cyan); }
+    .goal-card .status { margin-left: auto; font-family: "Press Start 2P", monospace; font-size: 0.5rem; padding: 0.25rem 0.45rem; border: 2px solid #000; }
+    .status.ok { background: var(--green); color: #04210f; }
+    .status.no { background: var(--yellow); color: #2b1f02; }
+    .err-bar { height: 12px; background: #000; overflow: hidden; margin-top: 0.45rem; border: 2px solid var(--ink); }
+    .err-bar > div { height: 100%; transition: width 0.25s steps(12); }
+    .err-text { font-size: 1rem; color: var(--muted); margin-top: 0.35rem; text-transform: uppercase; }
+    .goal-instr { font-size: 1.05rem; color: var(--text); }
+    pre {
+      background: #050912; padding: 0.7rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+      font-family: "VT323", monospace; font-size: 1.05rem; line-height: 1.3; margin: 0; max-height: 240px;
+      border: 3px solid var(--ink); color: var(--green);
+    }
+    .empty { color: var(--muted); text-align: center; padding: 2.5rem 1rem; text-transform: uppercase; }
+
+    /* ---------- Rules modal ---------- */
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 5000; display: grid; place-items: center;
+      background: rgba(8,2,20,0.82); backdrop-filter: blur(3px); padding: 1.5rem;
+    }
+    .modal-backdrop[hidden] { display: none; }
+    .modal {
+      max-width: 620px; width: 100%; background: var(--panel);
+      border: 4px solid var(--cyan); box-shadow: 10px 10px 0 #000, 0 0 30px rgba(0,240,255,0.4);
+      padding: 1.6rem; position: relative; animation: pop 0.18s steps(3) both;
+    }
+    @keyframes pop { from { transform: scale(0.85); } to { transform: scale(1); } }
+    .modal-title {
+      font-family: "Press Start 2P", monospace; font-size: 0.95rem; color: var(--yellow);
+      text-align: center; text-shadow: 3px 3px 0 var(--magenta); margin-bottom: 1.2rem; line-height: 1.6;
+    }
+    .modal-body { font-size: 1.2rem; line-height: 1.45; color: var(--text); }
+    .modal-body p { margin: 0 0 0.85rem; }
+    .modal-body b { color: var(--cyan); }
+    .rule-colors { display: flex; gap: 0.9rem; justify-content: center; margin: 1rem 0; flex-wrap: wrap; }
+    .rule-colors span { display: inline-flex; align-items: center; gap: 0.4rem; text-transform: uppercase; font-size: 1rem; }
+    .bench-note {
+      border: 3px dashed var(--green); padding: 0.7rem 0.8rem; margin-top: 1rem;
+      color: var(--green); font-size: 1.05rem;
+    }
+    .retro-btn {
+      display: block; margin: 1.4rem auto 0; font-family: "Press Start 2P", monospace; font-size: 0.8rem;
+      background: var(--magenta); color: #fff; border: 3px solid #fff; box-shadow: 5px 5px 0 #000;
+      padding: 0.9rem 1.6rem; cursor: pointer; text-transform: uppercase;
+    }
+    .retro-btn:hover { background: var(--cyan); color: #04210f; }
+    .retro-btn:active { transform: translate(5px,5px); box-shadow: 0 0 0 #000; }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 12px; height: 12px; }
+    ::-webkit-scrollbar-track { background: var(--bg2); }
+    ::-webkit-scrollbar-thumb { background: var(--border-dim); border: 2px solid #000; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="logo">T</div>
+      <div>
+        <h1>TWISTER-BOT</h1>
+        <small id="ep-label">REPLAY VIEWER</small>
+      </div>
+    </div>
+    <select class="episode-select" id="episode" title="Switch episode"></select>
+    <div class="controls">
+      <button class="play-btn" id="play" title="Play / pause">▶</button>
+      <div class="scrubber">
+        <input type="range" id="scrub" min="0" max="0" value="0" />
+        <span class="step-counter" id="counter">— / —</span>
+      </div>
+    </div>
+    <button class="icon-btn" id="help" title="How to play Twister">?</button>
+    <label class="file-btn" for="file">LOAD</label>
+    <input type="file" id="file" accept=".json" />
+  </header>
+
+  <div class="layout">
+    <aside class="card">
+      <p class="card-title">Steps</p>
+      <div id="steps"></div>
+    </aside>
+
+    <main>
+      <section class="card stage">
+        <div class="stage-head">
+          <div class="cmd" id="cmd">—</div>
+          <span class="badge up" id="upright">UPRIGHT</span>
+        </div>
+        <img id="humanoid" alt="MuJoCo humanoid render" />
+      </section>
+      <section class="card mat-wrap">
+        <p class="card-title">Twister Mat — Top Down</p>
+        <canvas id="mat" width="620" height="460"></canvas>
+        <div class="legend">
+          <span><span class="dot" style="background:#e63946"></span>left hand</span>
+          <span><span class="dot" style="background:#4895ef"></span>right hand</span>
+          <span><span class="dot" style="background:#f4a261"></span>left foot</span>
+          <span><span class="dot" style="background:#2a9d8f"></span>right foot</span>
+          <span><span class="dot" style="background:#fff;border:2px solid #888"></span>target</span>
+        </div>
+      </section>
+    </main>
+
+    <div class="card panel">
+      <div>
+        <p class="card-title">Step Detail</p>
+        <div class="stat-row">
+          <div class="stat"><div class="label">Reward</div><div class="value" id="reward">—</div></div>
+          <div class="stat"><div class="label">Mean Err</div><div class="value" id="merr">—</div></div>
+        </div>
+      </div>
+      <div>
+        <p class="card-title">Goals &amp; Placement</p>
+        <div id="goals"></div>
+      </div>
+      <div>
+        <p class="card-title">Reasoning</p>
+        <pre id="reasoning">(none)</pre>
+      </div>
+      <div>
+        <p class="card-title">Action</p>
+        <pre id="action">{}</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- Rules modal ---------- -->
+  <div class="modal-backdrop" id="rules-modal" hidden>
+    <div class="modal">
+      <div class="modal-title">★ HOW TO PLAY TWISTER ★</div>
+      <div class="modal-body">
+        <p>Twister is a game of physical contortion played on a vinyl mat dotted with big colored circles.</p>
+        <div class="rule-colors">
+          <span><span class="dot" style="background:#e63946"></span>red</span>
+          <span><span class="dot" style="background:#fcbf49"></span>yellow</span>
+          <span><span class="dot" style="background:#2a9d8f"></span>green</span>
+          <span><span class="dot" style="background:#4895ef"></span>blue</span>
+        </div>
+        <p>A <b>spinner</b> calls out a move pairing one limb with one color, e.g. <b>"right hand → green"</b>. You must place that hand or foot onto a free circle of that color…</p>
+        <p>…<b>without falling</b> and without lifting your other planted limbs. Each new call leaves you more tangled. Touch the mat with a knee or elbow, or topple over, and you're <b>OUT</b>. Last one standing wins!</p>
+        <div class="bench-note">
+          ROBOT MODE: an AI drives a physics-simulated humanoid's joints to land the called limb(s) on the right color. We score the <b>placement error</b> (distance to target) and whether it stays <b>upright</b>.
+        </div>
+      </div>
+      <button class="retro-btn" id="rules-close">GOT IT!</button>
+    </div>
+  </div>
+
+  <script>
+    const COLORS = { red: "#e63946", yellow: "#fcbf49", green: "#2a9d8f", blue: "#4895ef" };
+    const LIMB_COLORS = {
+      left_hand: "#e63946", right_hand: "#4895ef",
+      left_foot: "#f4a261", right_foot: "#2a9d8f"
+    };
+    const canvas = document.getElementById("mat");
+    const ctx = canvas.getContext("2d");
+    const humanoidImg = document.getElementById("humanoid");
+    let replayData = null;
+    let currentEpisode = null;
+    let steps = [];
+    let current = 0;
+    let playing = false;
+    let timer = null;
+
+    const SCALE = 95;
+    function worldToCanvas(x, y) {
+      return [canvas.width / 2 + x * SCALE, canvas.height / 2 - y * SCALE];
+    }
+
+    function roundRect(c, x, y, w, h, r) {
+      c.beginPath();
+      c.moveTo(x + r, y);
+      c.arcTo(x + w, y, x + w, y + h, r);
+      c.arcTo(x + w, y + h, x, y + h, r);
+      c.arcTo(x, y + h, x, y, r);
+      c.arcTo(x, y, x + w, y, r);
+      c.closePath();
+    }
+
+    function getView(row) {
+      if (row.view) return row.view;
+      // Fallback: synthesize from raw observation (older exports).
+      const obs = row.observation || {};
+      const ee = obs.end_effectors || {};
+      const goals = [];
+      const radius = obs.placement_radius || 0.08;
+      if (obs.command) {
+        const t = obs.target || obs.target_circle || {};
+        const lp = ee[obs.command.limb] || {};
+        const err = obs.placement_error;
+        goals.push({
+          limb: obs.command.limb, instruction: obs.command.instruction,
+          color: obs.command.color || t.color, target: { x: t.x, y: t.y },
+          limb_pos: { x: lp.x, y: lp.y }, error: err,
+          placed: typeof err === "number" && err <= radius
+        });
+      }
+      return { command_text: obs.command?.instruction || "—", goals, placement_radius: radius, upright: obs.upright ?? true };
+    }
+
+    function drawMat(obs, view) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // retro board backdrop + neon grid
+      ctx.fillStyle = "#0a0420";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "rgba(255,46,151,0.10)";
+      ctx.lineWidth = 1;
+      for (let gx = 0; gx <= canvas.width; gx += 31) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, canvas.height); ctx.stroke(); }
+      for (let gy = 0; gy <= canvas.height; gy += 31) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(canvas.width, gy); ctx.stroke(); }
+      ctx.strokeStyle = "#00f0ff";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
+
+      const mat = obs.mat || {};
+      let circles = mat.circles || [];
+      if (circles.length === 0 && mat.row_colors) {
+        const spacing = 0.35;
+        mat.row_colors.forEach((color, row) => {
+          for (let col = 0; col < (mat.cols || 6); col++) {
+            circles.push({ color, x: (col - 2.5) * spacing, y: (row - 1.5) * spacing, row, col });
+          }
+        });
+      }
+
+      // mat circles with bold cartoon outline
+      circles.forEach(c => {
+        const [px, py] = worldToCanvas(c.x, c.y);
+        ctx.beginPath();
+        ctx.arc(px, py, 20, 0, Math.PI * 2);
+        ctx.fillStyle = COLORS[c.color] || "#666";
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "#000";
+        ctx.stroke();
+        // glossy highlight
+        ctx.beginPath();
+        ctx.arc(px - 5, py - 6, 5, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255,255,255,0.35)";
+        ctx.fill();
+      });
+
+      const goals = view.goals || [];
+      const radius = (view.placement_radius || 0.08) * SCALE;
+
+      // goal rings + connector lines + limb markers
+      goals.forEach(g => {
+        const t = g.target || {};
+        if (t.x == null) return;
+        const [tx, ty] = worldToCanvas(t.x, t.y);
+        const col = LIMB_COLORS[g.limb] || "#fff";
+
+        // goal radius ring
+        ctx.beginPath();
+        ctx.arc(tx, ty, radius, 0, Math.PI * 2);
+        ctx.fillStyle = hexToRgba(col, 0.15);
+        ctx.fill();
+        ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = hexToRgba(col, 0.95);
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // target crosshair
+        ctx.beginPath();
+        ctx.arc(tx, ty, 26, 0, Math.PI * 2);
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        // connector from limb to target
+        const lp = g.limb_pos || {};
+        if (lp.x != null) {
+          const [lx, ly] = worldToCanvas(lp.x, lp.y);
+          ctx.beginPath();
+          ctx.moveTo(lx, ly);
+          ctx.lineTo(tx, ty);
+          ctx.strokeStyle = g.placed ? "#2bff9e" : hexToRgba(col, 0.6);
+          ctx.lineWidth = 2;
+          ctx.setLineDash(g.placed ? [] : [4, 4]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // error label at midpoint
+          if (typeof g.error === "number") {
+            const mx = (lx + tx) / 2, my = (ly + ty) / 2;
+            const label = g.placed ? "PLACED!" : g.error.toFixed(3) + "m";
+            ctx.font = '16px "VT323", monospace';
+            const w = ctx.measureText(label).width + 14;
+            ctx.fillStyle = g.placed ? "#2bff9e" : "#0a0420";
+            ctx.fillRect(mx - w / 2, my - 11, w, 22);
+            ctx.strokeStyle = "#000"; ctx.lineWidth = 2;
+            ctx.strokeRect(mx - w / 2, my - 11, w, 22);
+            ctx.fillStyle = g.placed ? "#04210f" : "#ffd23f";
+            ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.fillText(label, mx, my);
+            ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
+          }
+        }
+      });
+
+      // limb markers on top
+      const ee = obs.end_effectors || {};
+      Object.entries(ee).forEach(([limb, pos]) => {
+        if (pos.x == null) return;
+        const [lx, ly] = worldToCanvas(pos.x, pos.y);
+        const col = LIMB_COLORS[limb] || "#fff";
+        const isGoal = goals.some(g => g.limb === limb);
+        ctx.beginPath();
+        ctx.arc(lx, ly, isGoal ? 9 : 6, 0, Math.PI * 2);
+        ctx.fillStyle = col;
+        ctx.fill();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = "#000";
+        ctx.stroke();
+      });
+    }
+
+    function showStep(i) {
+      if (!steps.length) return;
+      current = Math.max(0, Math.min(i, steps.length - 1));
+      const row = steps[current];
+      const obs = row.observation || {};
+      const view = getView(row);
+
+      drawMat(obs, view);
+
+      if (row.frame) {
+        humanoidImg.src = row.frame + "?v=" + (row.step ?? current);
+        humanoidImg.style.display = "block";
+      } else {
+        humanoidImg.removeAttribute("src");
+      }
+
+      document.getElementById("cmd").textContent = view.command_text || "—";
+      const up = document.getElementById("upright");
+      up.textContent = view.upright ? "UPRIGHT" : "FALLEN";
+      up.className = "badge " + (view.upright ? "up" : "down");
+
+      document.getElementById("reward").textContent = fmt(row.reward, 3);
+      const errs = (view.goals || []).map(g => g.error).filter(e => typeof e === "number");
+      const mean = errs.length ? errs.reduce((a, b) => a + b, 0) / errs.length : null;
+      document.getElementById("merr").textContent = mean != null ? mean.toFixed(3) : "—";
+
+      renderGoals(view);
+
+      document.getElementById("reasoning").textContent = row.reasoning || "(none)";
+      document.getElementById("action").textContent = JSON.stringify(row.action || {}, null, 2);
+
+      document.querySelectorAll(".step-btn").forEach((b, j) => b.classList.toggle("active", j === current));
+      document.getElementById("scrub").value = current;
+      document.getElementById("counter").textContent = `${current + 1} / ${steps.length}`;
+    }
+
+    function renderGoals(view) {
+      const wrap = document.getElementById("goals");
+      wrap.innerHTML = "";
+      const goals = view.goals || [];
+      if (!goals.length) { wrap.innerHTML = '<p class="empty">No active goal</p>'; return; }
+      const radius = view.placement_radius || 0.08;
+      goals.forEach(g => {
+        const col = LIMB_COLORS[g.limb] || "#888";
+        const hasErr = typeof g.error === "number";
+        const ratio = hasErr ? Math.min(1, g.error / (radius * 4)) : 1;
+        const barColor = g.placed ? "var(--green)" : (g.error < radius * 2 ? "var(--yellow)" : "var(--red)");
+        const card = document.createElement("div");
+        card.className = "goal-card";
+        card.innerHTML = `
+          <div class="top">
+            <span class="dot" style="background:${col}"></span>
+            <span class="limb-name">${(g.limb || "").replace("_", " ")}</span>
+            <span class="status ${g.placed ? "ok" : "no"}">${g.placed ? "PLACED" : "MOVING"}</span>
+          </div>
+          <div class="goal-instr">${g.instruction || ""}</div>
+          <div class="err-bar"><div style="width:${(1 - ratio) * 100}%;background:${barColor}"></div></div>
+          <div class="err-text">${hasErr ? "error " + g.error.toFixed(3) + " m  ·  goal &lt;= " + radius + " m" : "—"}</div>
+        `;
+        wrap.appendChild(card);
+      });
+    }
+
+    function buildSteps() {
+      const container = document.getElementById("steps");
+      container.innerHTML = "";
+      steps.forEach((s, i) => {
+        const view = getView(s);
+        const placed = (view.goals || []).some(g => g.placed);
+        const r = typeof s.reward === "number" ? s.reward : 0;
+        const pillColor = placed ? "var(--green)" : (r >= 0.5 ? "var(--yellow)" : "var(--red)");
+        const btn = document.createElement("button");
+        btn.className = "step-btn";
+        btn.innerHTML = `<span class="pill" style="background:${pillColor}"></span>
+                         <span class="num">ST ${s.step ?? i + 1}</span>
+                         <span class="rw">r ${fmt(s.reward, 2)}</span>`;
+        btn.onclick = () => { stop(); showStep(i); };
+        container.appendChild(btn);
+      });
+    }
+
+    function episodeLabel(eid, eSteps) {
+      const v = eSteps.length ? getView(eSteps[0]) : { command_text: "" };
+      let cmd = v.command_text || "—";
+      if (cmd.length > 46) cmd = cmd.slice(0, 44) + "…";
+      return `${String(eid).slice(0, 8)} · ${cmd} (${eSteps.length})`;
+    }
+
+    function loadReplay(data) {
+      replayData = data.replay || {};
+      const ids = Object.keys(replayData);
+      const sel = document.getElementById("episode");
+      sel.innerHTML = "";
+      ids.forEach(eid => {
+        const opt = document.createElement("option");
+        opt.value = eid;
+        opt.textContent = episodeLabel(eid, replayData[eid] || []);
+        sel.appendChild(opt);
+      });
+      sel.style.display = ids.length > 1 ? "block" : "none";
+      if (ids.length) selectEpisode(ids[0]);
+      else document.getElementById("cmd").textContent = "No episodes in replay";
+    }
+
+    function selectEpisode(eid) {
+      stop();
+      currentEpisode = eid;
+      steps = replayData[eid] || [];
+      document.getElementById("episode").value = eid;
+      document.getElementById("ep-label").textContent =
+        `EP ${String(eid).slice(0, 8)} · ${steps.length} STEPS`;
+      document.getElementById("scrub").max = Math.max(0, steps.length - 1);
+      buildSteps();
+      if (steps.length) showStep(0);
+      else document.getElementById("cmd").textContent = "No steps in episode";
+    }
+
+    document.getElementById("episode").addEventListener("change", e => selectEpisode(e.target.value));
+
+    // ---------- playback ----------
+    function play() {
+      if (!steps.length) return;
+      playing = true;
+      document.getElementById("play").textContent = "II";
+      timer = setInterval(() => {
+        if (current >= steps.length - 1) { stop(); return; }
+        showStep(current + 1);
+      }, 900);
+    }
+    function stop() {
+      playing = false;
+      document.getElementById("play").textContent = "▶";
+      if (timer) clearInterval(timer);
+    }
+    document.getElementById("play").onclick = () => playing ? stop() : play();
+    document.getElementById("scrub").addEventListener("input", e => { stop(); showStep(+e.target.value); });
+    document.addEventListener("keydown", e => {
+      if (!document.getElementById("rules-modal").hidden) return;  // modal captures keys
+      if (e.key === "ArrowRight") { stop(); showStep(current + 1); }
+      else if (e.key === "ArrowLeft") { stop(); showStep(current - 1); }
+      else if (e.key === " ") { e.preventDefault(); playing ? stop() : play(); }
+    });
+
+    document.getElementById("file").addEventListener("change", e => {
+      const f = e.target.files[0];
+      if (!f) return;
+      const r = new FileReader();
+      r.onload = () => loadReplay(JSON.parse(r.result));
+      r.readAsText(f);
+    });
+
+    // ---------- rules modal ----------
+    const rulesModal = document.getElementById("rules-modal");
+    function openRules() { rulesModal.hidden = false; }
+    function closeRules() { rulesModal.hidden = true; localStorage.setItem("twister_rules_seen", "1"); }
+    document.getElementById("help").onclick = openRules;
+    document.getElementById("rules-close").onclick = closeRules;
+    rulesModal.addEventListener("click", e => { if (e.target === rulesModal) closeRules(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && !rulesModal.hidden) closeRules(); });
+    if (!localStorage.getItem("twister_rules_seen")) openRules();
+
+    // ---------- helpers ----------
+    function fmt(v, d) { return typeof v === "number" ? v.toFixed(d) : (v ?? "—"); }
+    function hexToRgba(hex, a) {
+      const n = parseInt(hex.replace("#", ""), 16);
+      return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+    }
+    function lighten(hex, amt) {
+      const n = parseInt(hex.replace("#", ""), 16);
+      const r = Math.min(255, ((n >> 16) & 255) + 255 * amt);
+      const g = Math.min(255, ((n >> 8) & 255) + 255 * amt);
+      const b = Math.min(255, (n & 255) + 255 * amt);
+      return `rgb(${r|0}, ${g|0}, ${b|0})`;
+    }
+
+    fetch("replay.json")
+      .then(r => r.json())
+      .then(loadReplay)
+      .catch(() => fetch("replay.example.json").then(r => r.json()).then(loadReplay).catch(() => {
+        document.getElementById("cmd").textContent = "Load a replay.json via LOAD";
+      }));
+  </script>
+</body>
+</html>

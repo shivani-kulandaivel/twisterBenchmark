@@ -113,6 +113,30 @@ class TwisterMat:
         }
 
 
+# Approximate world-XY anchor of each limb (shoulder / hip) and its reach radius.
+# Used to keep Phase-1 targets physically reachable for the commanded limb.
+LIMB_ANCHORS: dict[str, tuple[float, float]] = {
+    "left_hand": (0.12, 0.0),
+    "right_hand": (-0.12, 0.0),
+    "left_foot": (0.18, 0.0),
+    "right_foot": (-0.18, 0.0),
+}
+LIMB_REACH: dict[str, float] = {
+    "left_hand": 0.42,
+    "right_hand": 0.42,
+    "left_foot": 0.42,
+    "right_foot": 0.42,
+}
+
+
+def reachable_circles(mat: TwisterMat, limb: str) -> list[Circle]:
+    """Circles the given limb can plausibly reach from a stationary, anchored body."""
+    ax, ay = LIMB_ANCHORS[limb]
+    r = LIMB_REACH[limb]
+    hits = [c for c in mat.circles if math.hypot(c.x - ax, c.y - ay) <= r]
+    return hits or mat.circles  # fall back to all if (somehow) none qualify
+
+
 class Spinner:
     def __init__(self, rng: random.Random) -> None:
         self._rng = rng
@@ -121,6 +145,24 @@ class Spinner:
         limb, color = self._rng.choice(SPINNER_OPTIONS)
         circle = self._rng.choice(mat.circles_by_color(color))
         return TwisterCommand(limb=limb, color=color, row=circle.row, col=circle.col)
+
+    def spin_reachable(self, mat: TwisterMat) -> TwisterCommand:
+        """Pick a limb, then a circle within that limb's reachable zone (Phase 1)."""
+        limb = self._rng.choice(LIMBS)
+        circle = self._rng.choice(reachable_circles(mat, limb))
+        return TwisterCommand(limb=limb, color=circle.color, row=circle.row, col=circle.col)
+
+    def spin_reachable_multi(self, mat: TwisterMat, n: int = 2) -> list[TwisterCommand]:
+        """Pick n DISTINCT limbs, each with a circle in its own reachable zone."""
+        n = max(1, min(n, len(LIMBS)))
+        limbs = self._rng.sample(list(LIMBS), n)
+        commands: list[TwisterCommand] = []
+        for limb in limbs:
+            circle = self._rng.choice(reachable_circles(mat, limb))
+            commands.append(
+                TwisterCommand(limb=limb, color=circle.color, row=circle.row, col=circle.col)
+            )
+        return commands
 
 
 def horizontal_distance(x1: float, y1: float, x2: float, y2: float) -> float:

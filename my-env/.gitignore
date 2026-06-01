@@ -1,0 +1,13 @@
+# Local secrets — never commit
+.env
+*.local.json
+
+# Python
+__pycache__/
+*.pyc
+
+# Generated artifacts
+data/traces/
+showcase/frames/
+showcase/replay.json
+_alive*.txt

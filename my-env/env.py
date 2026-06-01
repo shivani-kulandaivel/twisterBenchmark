@@ -9,9 +9,12 @@ from typing import Any
 from bench_common.env_sdk.base import BaseEnv, StepResult
 
 from game.tasks import (
+    MultiPlacementState,
     Phase1State,
     Phase2State,
+    build_multi_observation,
     build_observation,
+    evaluate_multi_step,
     evaluate_phase1_step,
     evaluate_phase2_step,
 )
@@ -33,6 +36,7 @@ class TwisterEnv(BaseEnv):
         self._spinner: Spinner | None = None
         self._phase1: Phase1State | None = None
         self._phase2: Phase2State | None = None
+        self._multi: MultiPlacementState | None = None
         self._step_count = 0
         self._cumulative_reward = 0.0
         self._seed: int | None = None
@@ -45,6 +49,7 @@ class TwisterEnv(BaseEnv):
         self._spinner = Spinner(self._rng)
         self._step_count = 0
         self._cumulative_reward = 0.0
+        self._multi = None
 
         self._sim.reset(seed=seed)
 
@@ -69,7 +74,20 @@ class TwisterEnv(BaseEnv):
                 placement_error_m=None,
             )
 
-        command = self._spinner.spin(self._mat)
+        num_targets = int(params.get("num_targets", 1))
+        if num_targets > 1:
+            commands = self._spinner.spin_reachable_multi(self._mat, num_targets)
+            self._multi = MultiPlacementState(commands=commands)
+            self._phase1 = None
+            self._phase2 = None
+            return build_multi_observation(
+                sim=self._sim,
+                mat=self._mat,
+                commands=commands,
+                placement_errors=None,
+            )
+
+        command = self._spinner.spin_reachable(self._mat)
         self._phase1 = Phase1State(command=command)
         self._phase2 = None
         target = self._mat.circle_at(command.row, command.col)
@@ -85,7 +103,7 @@ class TwisterEnv(BaseEnv):
         )
 
     def step(self, action: Any) -> StepResult:
-        if self._phase1 is None and self._phase2 is None:
+        if self._phase1 is None and self._phase2 is None and self._multi is None:
             raise RuntimeError("Call reset() before step()")
 
         parsed = self._parse_action(action)
@@ -97,9 +115,48 @@ class TwisterEnv(BaseEnv):
         self._sim.step_physics()
         self._step_count += 1
 
+        if self._multi is not None:
+            return self._step_multi()
         if self._phase == 1:
             return self._step_phase1()
         return self._step_phase2()
+
+    def _step_multi(self) -> StepResult:
+        assert self._multi is not None
+        state = self._multi
+        all_placed, terminated, reward, reason, errors = evaluate_multi_step(
+            state, self._sim, self._mat
+        )
+        truncated = not terminated and self._step_count >= PHASE1_MAX_STEPS
+        if truncated:
+            terminated = True
+            reason = reason or "timeout"
+
+        self._cumulative_reward += reward
+        obs = build_multi_observation(
+            sim=self._sim,
+            mat=self._mat,
+            commands=state.commands,
+            placement_errors=errors,
+        )
+        mean_err = sum(errors) / len(errors)
+        info = {
+            "phase": "1-multi",
+            "success": str(all_placed),
+            "num_targets": str(len(state.commands)),
+            "termination_reason": reason or "",
+            "steps_used": str(self._step_count),
+            "placement_error": str(round(mean_err, 4)),
+            "per_limb_errors": ",".join(f"{c.limb}={e:.3f}" for c, e in zip(state.commands, errors)),
+            "cumulative_reward": str(round(self._cumulative_reward, 4)),
+        }
+        return StepResult(
+            observation=obs,
+            reward=reward,
+            terminated=terminated,
+            truncated=truncated,
+            info=info,
+        )
 
     def _step_phase1(self) -> StepResult:
         assert self._phase1 is not None
@@ -171,9 +228,26 @@ class TwisterEnv(BaseEnv):
         if isinstance(action, dict):
             return action
         if isinstance(action, str):
-            action = action.strip()
-            if action.startswith("{"):
-                return json.loads(action)
+            text = action.strip()
+            if text.startswith("```"):
+                lines = text.splitlines()
+                if lines and lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                text = "\n".join(lines).strip()
+            if text.startswith("{"):
+                try:
+                    return json.loads(text)
+                except json.JSONDecodeError:
+                    pass
+            start = text.find("{")
+            end = text.rfind("}")
+            if start >= 0 and end > start:
+                try:
+                    return json.loads(text[start : end + 1])
+                except json.JSONDecodeError:
+                    pass
         return {"joint_targets": {}}
 
     def _info_phase1(self, success: bool, reason: str | None, error: float) -> dict[str, str]:

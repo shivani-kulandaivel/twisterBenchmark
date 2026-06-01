@@ -1,0 +1,10 @@
+[
+  {
+    "id":"impossible_001",
+    "seed":41,
+    "phase":2,
+    "max_turns":10,
+    "balance_assist_strength":0.0,
+    "expected_outcome":"unreachable"
+  }
+]

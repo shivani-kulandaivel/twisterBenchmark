@@ -1,49 +1,88 @@
 {
-  "id": "my-env",
+  "id": "twister-body",
   "adapter": "adapter.py",
-  "name": "My Environment",
-  "description": "One-sentence description of what this benchmark evaluates.",
-
+  "name": "Twister Humanoid Robotics Benchmark",
+  "description": "Benchmarks whole-body humanoid control and LLM reasoning for Twister in MuJoCo.",
   "binding_vow": {
     "version": "1.0.0",
     "tier": "tier1",
-    "description": "Longer description of the task and what makes a good agent.",
-
+    "description": "Control a 3D humanoid in MuJoCo to place commanded limbs on colored Twister circles while preserving locked contacts and balance.",
     "observation_space": {
       "type": "json",
-      "description": "{ \"question\": string }"
+      "description": "{ phase, world_state, command, target_circle, joints, end_effectors, locked_limbs, reachability, ik_suggestion, balance, perf }"
     },
-
     "action_space": {
-      "type": "text",
-      "description": "Free-text answer from the agent"
+      "type": "json",
+      "description": "{ use_ik?, joint_targets?, delta?, max_delta?, follow_ik?, ik_blend?, controller? }"
     },
-
     "reward": {
-      "type": "binary",
-      "range": { "low": 0.0, "high": 1.0 },
-      "description": "1.0 if correct, 0.0 otherwise"
+      "type": "scalar",
+      "range": {
+        "low": -0.2,
+        "high": 2.0
+      },
+      "description": "Placement reward + stability shaping; failures from falls or constraint violations terminate."
     },
-
     "episode": {
-      "max_steps": 10,
+      "max_steps": 220,
       "deterministic_reset": true,
       "supports_seed": true,
       "parallel_episodes": 1,
       "observability": "full"
     },
-
-    "techniques": []
+    "techniques": [
+      "whole_body_control",
+      "inverse_kinematics",
+      "balance_control",
+      "contact_constraints",
+      "long_horizon_planning"
+    ]
   },
-
   "scoring": {
-    "primary_metric": "accuracy",
+    "primary_metric": "total_score",
     "higher_is_better": true,
     "metrics": [
       {
         "name": "accuracy",
         "type": "episode_reward",
-        "aggregation": "pass_rate"
+        "aggregation": "pass_rate",
+        "description": "Pass rate for episodes that successfully place and survive."
+      },
+      {
+        "name": "survival_turns",
+        "type": "terminal_field",
+        "field": "turns_survived",
+        "aggregation": "mean"
+      },
+      {
+        "name": "avg_decision_time_s",
+        "type": "terminal_field",
+        "field": "avg_decision_time_s",
+        "aggregation": "mean"
+      },
+      {
+        "name": "reach_accuracy",
+        "type": "terminal_field",
+        "field": "reach_accuracy",
+        "aggregation": "mean"
+      },
+      {
+        "name": "balance_success_rate",
+        "type": "terminal_field",
+        "field": "balance_success_rate",
+        "aggregation": "mean"
+      },
+      {
+        "name": "constraint_violations",
+        "type": "terminal_field",
+        "field": "constraint_violations",
+        "aggregation": "mean"
+      },
+      {
+        "name": "total_score",
+        "type": "terminal_field",
+        "field": "total_score",
+        "aggregation": "mean"
       }
     ]
   }

@@ -1,0 +1,276 @@
+<mujoco model="twister_humanoid">
+  <compiler angle="degree" coordinate="local" inertiafromgeom="false"/>
+  <option gravity="0 0 -9.81" timestep="0.01" integrator="RK4"/>
+
+  <visual>
+    <global offwidth="1920" offheight="1080" fovy="45" linewidth="1.5" glow="0.12"/>
+    <quality shadowsize="8192" offsamples="8"/>
+    <map force="0.08" fogstart="4" fogend="14" zfar="24"/>
+    <headlight ambient="0.32 0.33 0.36" diffuse="0.52 0.54 0.58" specular="0.22 0.22 0.24"/>
+  </visual>
+  <statistic center="0 0 0.85" extent="2.2"/>
+
+  <default>
+    <default class="visual_mesh">
+      <geom type="mesh" contype="0" conaffinity="0" group="1"/>
+    </default>
+    <default class="collision_geom">
+      <geom group="3" rgba="1 1 1 0"/>
+    </default>
+    <joint limited="true" damping="4" armature="0.04"/>
+    <geom friction="1.2 0.05 0.005" condim="3" margin="0.002" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+    <position kp="90" kv="12" forcerange="-250 250"/>
+  </default>
+
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient" rgb1="0.48 0.66 0.92" rgb2="0.90 0.94 0.98" width="512" height="512"/>
+    <texture name="grid" type="2d" builtin="checker" width="512" height="512" rgb1="0.18 0.22 0.28" rgb2="0.28 0.32 0.38"/>
+    <texture name="fabric" type="2d" builtin="flat" rgb1="0.94 0.95 0.96" width="64" height="64"/>
+    <material name="floor" rgba="0.88 0.88 0.87 1" specular="0.08" shininess="0.05"/>
+    <material name="mat_base" rgba="0.98 0.98 0.96 1" specular="0.22" shininess="0.14"/>
+    <material name="skin" rgba="0.83 0.67 0.56 1" specular="0.18" shininess="0.12" reflectance="0.04"/>
+    <material name="shirt" rgba="0.08 0.26 0.52 1" specular="0.08" shininess="0.06" reflectance="0.02"/>
+    <material name="shorts" rgba="0.16 0.17 0.21 1" specular="0.06" shininess="0.05"/>
+    <material name="shoe" rgba="0.10 0.10 0.11 1" specular="0.12" shininess="0.18" reflectance="0.05"/>
+    <material name="hair" rgba="0.15 0.11 0.08 1" specular="0.10" shininess="0.08"/>
+    <mesh name="mesh_pelvis" file="assets/humanoid_meshes/pelvis.obj"/>
+    <mesh name="mesh_pelvis_shorts" file="assets/humanoid_meshes/pelvis_shorts.obj"/>
+    <mesh name="mesh_lumbar" file="assets/humanoid_meshes/lumbar.obj"/>
+    <mesh name="mesh_torso" file="assets/humanoid_meshes/torso.obj"/>
+    <mesh name="mesh_shirt" file="assets/humanoid_meshes/shirt.obj"/>
+    <mesh name="mesh_head" file="assets/humanoid_meshes/head.obj"/>
+    <mesh name="mesh_hair" file="assets/humanoid_meshes/hair.obj"/>
+    <mesh name="mesh_left_upper_arm" file="assets/humanoid_meshes/left_upper_arm.obj"/>
+    <mesh name="mesh_left_forearm" file="assets/humanoid_meshes/left_forearm.obj"/>
+    <mesh name="mesh_right_upper_arm" file="assets/humanoid_meshes/right_upper_arm.obj"/>
+    <mesh name="mesh_right_forearm" file="assets/humanoid_meshes/right_forearm.obj"/>
+    <mesh name="mesh_left_thigh" file="assets/humanoid_meshes/left_thigh.obj"/>
+    <mesh name="mesh_left_shin" file="assets/humanoid_meshes/left_shin.obj"/>
+    <mesh name="mesh_right_thigh" file="assets/humanoid_meshes/right_thigh.obj"/>
+    <mesh name="mesh_right_shin" file="assets/humanoid_meshes/right_shin.obj"/>
+    <mesh name="mesh_left_pants_thigh" file="assets/humanoid_meshes/left_pants_thigh.obj"/>
+    <mesh name="mesh_left_pants_shin" file="assets/humanoid_meshes/left_pants_shin.obj"/>
+    <mesh name="mesh_right_pants_thigh" file="assets/humanoid_meshes/right_pants_thigh.obj"/>
+    <mesh name="mesh_right_pants_shin" file="assets/humanoid_meshes/right_pants_shin.obj"/>
+    <mesh name="mesh_left_shoe" file="assets/humanoid_meshes/left_shoe.obj"/>
+    <mesh name="mesh_right_shoe" file="assets/humanoid_meshes/right_shoe.obj"/>
+  </asset>
+
+  <worldbody>
+    <light pos="1.4 -1.6 3.0" dir="-0.35 0.45 -1" diffuse="0.72 0.74 0.78" specular="0.35 0.35 0.38" castshadow="true"/>
+    <light pos="-2.2 1.4 2.4" dir="0.55 -0.35 -1" diffuse="0.38 0.42 0.50" castshadow="false"/>
+    <light pos="0.0 2.0 2.8" dir="0 -0.2 -1" diffuse="0.28 0.30 0.34" castshadow="false"/>
+    <geom name="floor" type="plane" size="4 4 0.1" material="floor" rgba="0.85 0.85 0.85 1"/>
+
+    <!-- Twister mat with collision support circles. -->
+    <geom name="twister_mat" type="box" size="0.62 0.46 0.012" pos="0 0 -0.012" material="mat_base"/>
+    <geom name="mat_col_r0_c0" type="cylinder" size="0.085 0.006" pos="-0.50 -0.30 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r0_c1" type="cylinder" size="0.085 0.006" pos="-0.30 -0.30 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r0_c2" type="cylinder" size="0.085 0.006" pos="-0.10 -0.30 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r0_c3" type="cylinder" size="0.085 0.006" pos="0.10 -0.30 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r0_c4" type="cylinder" size="0.085 0.006" pos="0.30 -0.30 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r0_c5" type="cylinder" size="0.085 0.006" pos="0.50 -0.30 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r1_c0" type="cylinder" size="0.085 0.006" pos="-0.50 -0.10 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r1_c1" type="cylinder" size="0.085 0.006" pos="-0.30 -0.10 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r1_c2" type="cylinder" size="0.085 0.006" pos="-0.10 -0.10 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r1_c3" type="cylinder" size="0.085 0.006" pos="0.10 -0.10 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r1_c4" type="cylinder" size="0.085 0.006" pos="0.30 -0.10 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r1_c5" type="cylinder" size="0.085 0.006" pos="0.50 -0.10 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r2_c0" type="cylinder" size="0.085 0.006" pos="-0.50 0.10 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r2_c1" type="cylinder" size="0.085 0.006" pos="-0.30 0.10 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r2_c2" type="cylinder" size="0.085 0.006" pos="-0.10 0.10 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r2_c3" type="cylinder" size="0.085 0.006" pos="0.10 0.10 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r2_c4" type="cylinder" size="0.085 0.006" pos="0.30 0.10 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r2_c5" type="cylinder" size="0.085 0.006" pos="0.50 0.10 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r3_c0" type="cylinder" size="0.085 0.006" pos="-0.50 0.30 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r3_c1" type="cylinder" size="0.085 0.006" pos="-0.30 0.30 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r3_c2" type="cylinder" size="0.085 0.006" pos="-0.10 0.30 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r3_c3" type="cylinder" size="0.085 0.006" pos="0.10 0.30 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r3_c4" type="cylinder" size="0.085 0.006" pos="0.30 0.30 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_col_r3_c5" type="cylinder" size="0.085 0.006" pos="0.50 0.30 0.006" rgba="1 1 1 0"/>
+    <geom name="mat_r0_c0" type="cylinder" size="0.085 0.012" pos="-0.50 -0.30 0.012" rgba="0.92 0.12 0.12 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r0_c0_ring" type="cylinder" size="0.092 0.003" pos="-0.50 -0.30 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r0_c1" type="cylinder" size="0.085 0.012" pos="-0.30 -0.30 0.012" rgba="0.92 0.12 0.12 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r0_c1_ring" type="cylinder" size="0.092 0.003" pos="-0.30 -0.30 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r0_c2" type="cylinder" size="0.085 0.012" pos="-0.10 -0.30 0.012" rgba="0.92 0.12 0.12 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r0_c2_ring" type="cylinder" size="0.092 0.003" pos="-0.10 -0.30 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r0_c3" type="cylinder" size="0.085 0.012" pos="0.10 -0.30 0.012" rgba="0.92 0.12 0.12 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r0_c3_ring" type="cylinder" size="0.092 0.003" pos="0.10 -0.30 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r0_c4" type="cylinder" size="0.085 0.012" pos="0.30 -0.30 0.012" rgba="0.92 0.12 0.12 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r0_c4_ring" type="cylinder" size="0.092 0.003" pos="0.30 -0.30 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r0_c5" type="cylinder" size="0.085 0.012" pos="0.50 -0.30 0.012" rgba="0.92 0.12 0.12 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r0_c5_ring" type="cylinder" size="0.092 0.003" pos="0.50 -0.30 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r1_c0" type="cylinder" size="0.085 0.012" pos="-0.50 -0.10 0.012" rgba="1.0 0.82 0.05 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r1_c0_ring" type="cylinder" size="0.092 0.003" pos="-0.50 -0.10 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r1_c1" type="cylinder" size="0.085 0.012" pos="-0.30 -0.10 0.012" rgba="1.0 0.82 0.05 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r1_c1_ring" type="cylinder" size="0.092 0.003" pos="-0.30 -0.10 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r1_c2" type="cylinder" size="0.085 0.012" pos="-0.10 -0.10 0.012" rgba="1.0 0.82 0.05 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r1_c2_ring" type="cylinder" size="0.092 0.003" pos="-0.10 -0.10 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r1_c3" type="cylinder" size="0.085 0.012" pos="0.10 -0.10 0.012" rgba="1.0 0.82 0.05 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r1_c3_ring" type="cylinder" size="0.092 0.003" pos="0.10 -0.10 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r1_c4" type="cylinder" size="0.085 0.012" pos="0.30 -0.10 0.012" rgba="1.0 0.82 0.05 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r1_c4_ring" type="cylinder" size="0.092 0.003" pos="0.30 -0.10 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r1_c5" type="cylinder" size="0.085 0.012" pos="0.50 -0.10 0.012" rgba="1.0 0.82 0.05 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r1_c5_ring" type="cylinder" size="0.092 0.003" pos="0.50 -0.10 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r2_c0" type="cylinder" size="0.085 0.012" pos="-0.50 0.10 0.012" rgba="0.12 0.82 0.22 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r2_c0_ring" type="cylinder" size="0.092 0.003" pos="-0.50 0.10 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r2_c1" type="cylinder" size="0.085 0.012" pos="-0.30 0.10 0.012" rgba="0.12 0.82 0.22 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r2_c1_ring" type="cylinder" size="0.092 0.003" pos="-0.30 0.10 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r2_c2" type="cylinder" size="0.085 0.012" pos="-0.10 0.10 0.012" rgba="0.12 0.82 0.22 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r2_c2_ring" type="cylinder" size="0.092 0.003" pos="-0.10 0.10 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r2_c3" type="cylinder" size="0.085 0.012" pos="0.10 0.10 0.012" rgba="0.12 0.82 0.22 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r2_c3_ring" type="cylinder" size="0.092 0.003" pos="0.10 0.10 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r2_c4" type="cylinder" size="0.085 0.012" pos="0.30 0.10 0.012" rgba="0.12 0.82 0.22 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r2_c4_ring" type="cylinder" size="0.092 0.003" pos="0.30 0.10 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r2_c5" type="cylinder" size="0.085 0.012" pos="0.50 0.10 0.012" rgba="0.12 0.82 0.22 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r2_c5_ring" type="cylinder" size="0.092 0.003" pos="0.50 0.10 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r3_c0" type="cylinder" size="0.085 0.012" pos="-0.50 0.30 0.012" rgba="0.10 0.38 0.92 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r3_c0_ring" type="cylinder" size="0.092 0.003" pos="-0.50 0.30 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r3_c1" type="cylinder" size="0.085 0.012" pos="-0.30 0.30 0.012" rgba="0.10 0.38 0.92 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r3_c1_ring" type="cylinder" size="0.092 0.003" pos="-0.30 0.30 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r3_c2" type="cylinder" size="0.085 0.012" pos="-0.10 0.30 0.012" rgba="0.10 0.38 0.92 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r3_c2_ring" type="cylinder" size="0.092 0.003" pos="-0.10 0.30 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r3_c3" type="cylinder" size="0.085 0.012" pos="0.10 0.30 0.012" rgba="0.10 0.38 0.92 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r3_c3_ring" type="cylinder" size="0.092 0.003" pos="0.10 0.30 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r3_c4" type="cylinder" size="0.085 0.012" pos="0.30 0.30 0.012" rgba="0.10 0.38 0.92 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r3_c4_ring" type="cylinder" size="0.092 0.003" pos="0.30 0.30 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+    <geom name="mat_r3_c5" type="cylinder" size="0.085 0.012" pos="0.50 0.30 0.012" rgba="0.10 0.38 0.92 1" contype="0" conaffinity="0"/>
+    <geom name="mat_r3_c5_ring" type="cylinder" size="0.092 0.003" pos="0.50 0.30 0.015" rgba="1 1 1 0.55" contype="0" conaffinity="0"/>
+
+    <body name="pelvis" pos="0 0 0.92">
+      <freejoint name="root"/>
+      <inertial mass="14" pos="0 0 -0.03" diaginertia="0.12 0.10 0.08"/>
+      <geom name="pelvis_geom" class="collision_geom" type="capsule" size="0.08" fromto="0 0 -0.02 0 0 0.06"/>
+      <geom class="visual_mesh" mesh="mesh_pelvis" material="skin"/>
+      <geom class="visual_mesh" mesh="mesh_pelvis_shorts" material="shorts"/>
+
+      <!-- Lower spine: lumbar flexion + lateral bend -->
+      <body name="lumbar" pos="0 0 0.08">
+        <joint name="lumbar_pitch" type="hinge" axis="1 0 0" range="-35 35" damping="8"/>
+        <joint name="lumbar_roll" type="hinge" axis="0 1 0" range="-25 25" damping="6"/>
+        <inertial mass="5.5" pos="0 0 0.06" diaginertia="0.14 0.12 0.08"/>
+        <geom name="lumbar_geom" class="collision_geom" type="capsule" size="0.095" fromto="0 0 0 0 0 0.14"/>
+        <geom class="visual_mesh" mesh="mesh_lumbar" material="skin"/>
+
+        <!-- Upper spine: thoracic twist + flexion; arms/head attach here -->
+        <body name="torso" pos="0 0 0.14">
+          <joint name="thoracic_yaw" type="hinge" axis="0 0 1" range="-45 45" damping="5"/>
+          <joint name="thoracic_pitch" type="hinge" axis="1 0 0" range="-35 35" damping="6"/>
+          <inertial mass="6.5" pos="0 0 0.10" diaginertia="0.18 0.16 0.10"/>
+          <geom name="torso_geom" class="collision_geom" type="capsule" size="0.10" fromto="0 0 0 0 0 0.18"/>
+          <geom class="visual_mesh" mesh="mesh_torso" material="skin"/>
+          <geom class="visual_mesh" mesh="mesh_shirt" material="shirt"/>
+          <site name="torso_top" pos="0 0 0.18" size="0.02"/>
+
+        <body name="head" pos="0 0 0.20">
+          <inertial mass="4" pos="0 0 0" diaginertia="0.04 0.04 0.03"/>
+          <geom name="head_geom" class="collision_geom" type="sphere" size="0.10"/>
+          <geom class="visual_mesh" mesh="mesh_head" material="skin"/>
+          <geom class="visual_mesh" mesh="mesh_hair" material="hair"/>
+        </body>
+
+        <!-- Left arm -->
+        <body name="left_upper_arm" pos="0.12 0 0.12">
+          <joint name="left_shoulder_pitch" type="hinge" axis="0 1 0" range="-140 140"/>
+          <joint name="left_shoulder_roll" type="hinge" axis="1 0 0" range="-110 30"/>
+          <inertial mass="2.0" pos="0.11 0 0" diaginertia="0.02 0.02 0.01"/>
+            <geom type="capsule" size="0.04" fromto="0 0 0 0.26 0 0" rgba="0.83 0.67 0.56 1"/>
+            <geom type="capsule" size="0.047" fromto="0.02 0 0 0.23 0 0" rgba="0.08 0.26 0.52 1" contype="0" conaffinity="0"/>
+          <body name="left_forearm" pos="0.26 0 0">
+            <joint name="left_elbow" type="hinge" axis="0 1 0" range="-5 145"/>
+            <inertial mass="1.2" pos="0.10 0 0" diaginertia="0.01 0.01 0.005"/>
+            <geom type="capsule" size="0.035" fromto="0 0 0 0.24 0 0" rgba="0.83 0.67 0.56 1"/>
+            <site name="left_hand" pos="0.24 0 0" size="0.03" rgba="1 0 0 1"/>
+          </body>
+        </body>
+
+        <!-- Right arm -->
+        <body name="right_upper_arm" pos="-0.12 0 0.12">
+          <joint name="right_shoulder_pitch" type="hinge" axis="0 1 0" range="-140 140"/>
+          <joint name="right_shoulder_roll" type="hinge" axis="1 0 0" range="-30 110"/>
+          <inertial mass="2.0" pos="-0.11 0 0" diaginertia="0.02 0.02 0.01"/>
+            <geom type="capsule" size="0.04" fromto="0 0 0 -0.26 0 0" rgba="0.83 0.67 0.56 1"/>
+            <geom type="capsule" size="0.047" fromto="-0.02 0 0 -0.23 0 0" rgba="0.08 0.26 0.52 1" contype="0" conaffinity="0"/>
+          <body name="right_forearm" pos="-0.26 0 0">
+            <joint name="right_elbow" type="hinge" axis="0 1 0" range="-5 145"/>
+            <inertial mass="1.2" pos="-0.10 0 0" diaginertia="0.01 0.01 0.005"/>
+            <geom type="capsule" size="0.035" fromto="0 0 0 -0.24 0 0" rgba="0.83 0.67 0.56 1"/>
+            <site name="right_hand" pos="-0.24 0 0" size="0.03" rgba="0 0 1 1"/>
+          </body>
+        </body>
+        </body>
+      </body>
+
+      <!-- Left leg -->
+      <body name="left_thigh" pos="0.09 0 0">
+        <joint name="left_hip_pitch" type="hinge" axis="0 1 0" range="-120 45"/>
+        <joint name="left_hip_roll" type="hinge" axis="1 0 0" range="-95 95"/>
+        <joint name="left_hip_yaw" type="hinge" axis="0 0 1" range="-45 45" damping="5"/>
+        <inertial mass="6.0" pos="0 0 -0.16" diaginertia="0.08 0.08 0.03"/>
+        <geom type="capsule" size="0.05" fromto="0 0 0 0 0 -0.34" rgba="0.22 0.24 0.30 1"/>
+        <geom type="capsule" size="0.057" fromto="0 0 -0.02 0 0 -0.31" rgba="0.16 0.17 0.21 1" contype="0" conaffinity="0"/>
+        <body name="left_shin" pos="0 0 -0.34">
+          <joint name="left_knee" type="hinge" axis="0 1 0" range="-5 135"/>
+          <inertial mass="4.0" pos="0 0 -0.15" diaginertia="0.05 0.05 0.02"/>
+          <geom type="capsule" size="0.045" fromto="0 0 0 0 0 -0.32" rgba="0.22 0.24 0.30 1"/>
+          <geom type="capsule" size="0.052" fromto="0 0 -0.01 0 0 -0.30" rgba="0.17 0.18 0.22 1" contype="0" conaffinity="0"/>
+          <body name="left_foot_body" pos="0 0 -0.32">
+            <joint name="left_ankle" type="hinge" axis="0 1 0" range="-35 35"/>
+            <inertial mass="2.5" pos="0.03 0 -0.02" diaginertia="0.012 0.012 0.012"/>
+            <geom name="left_foot_geom" type="box" size="0.09 0.09 0.022" pos="0.03 0 -0.022" rgba="0.16 0.17 0.20 1"/>
+            <geom name="left_shoe_vis" type="box" size="0.11 0.12 0.025" pos="0.03 0 -0.025" rgba="0.10 0.10 0.11 1" contype="0" conaffinity="0"/>
+            <geom name="left_shoe_sole" type="box" size="0.104 0.116 0.006" pos="0.03 0 -0.047" rgba="0.92 0.92 0.90 1" contype="0" conaffinity="0"/>
+            <site name="left_foot" pos="0.07 0 -0.025" size="0.03" rgba="1 0.5 0 1"/>
+          </body>
+        </body>
+      </body>
+
+      <!-- Right leg -->
+      <body name="right_thigh" pos="-0.09 0 0">
+        <joint name="right_hip_pitch" type="hinge" axis="0 1 0" range="-120 45"/>
+        <joint name="right_hip_roll" type="hinge" axis="1 0 0" range="-95 95"/>
+        <joint name="right_hip_yaw" type="hinge" axis="0 0 1" range="-45 45" damping="5"/>
+        <inertial mass="6.0" pos="0 0 -0.16" diaginertia="0.08 0.08 0.03"/>
+        <geom type="capsule" size="0.05" fromto="0 0 0 0 0 -0.34" rgba="0.22 0.24 0.30 1"/>
+        <geom type="capsule" size="0.057" fromto="0 0 -0.02 0 0 -0.31" rgba="0.16 0.17 0.21 1" contype="0" conaffinity="0"/>
+        <body name="right_shin" pos="0 0 -0.34">
+          <joint name="right_knee" type="hinge" axis="0 1 0" range="-5 135"/>
+          <inertial mass="4.0" pos="0 0 -0.15" diaginertia="0.05 0.05 0.02"/>
+          <geom type="capsule" size="0.045" fromto="0 0 0 0 0 -0.32" rgba="0.22 0.24 0.30 1"/>
+          <geom type="capsule" size="0.052" fromto="0 0 -0.01 0 0 -0.30" rgba="0.17 0.18 0.22 1" contype="0" conaffinity="0"/>
+          <body name="right_foot_body" pos="0 0 -0.32">
+            <joint name="right_ankle" type="hinge" axis="0 1 0" range="-35 35"/>
+            <inertial mass="2.5" pos="-0.03 0 -0.02" diaginertia="0.012 0.012 0.012"/>
+            <geom name="right_foot_geom" type="box" size="0.09 0.09 0.022" pos="-0.03 0 -0.022" rgba="0.16 0.17 0.20 1"/>
+            <geom name="right_shoe_vis" type="box" size="0.11 0.12 0.025" pos="-0.03 0 -0.025" rgba="0.10 0.10 0.11 1" contype="0" conaffinity="0"/>
+            <geom name="right_shoe_sole" type="box" size="0.104 0.116 0.006" pos="-0.03 0 -0.047" rgba="0.92 0.92 0.90 1" contype="0" conaffinity="0"/>
+            <site name="right_foot" pos="-0.07 0 -0.025" size="0.03" rgba="0 0.5 1 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <position name="act_lumbar_pitch" joint="lumbar_pitch" kp="65" kv="10"/>
+    <position name="act_lumbar_roll" joint="lumbar_roll" kp="55" kv="9"/>
+    <position name="act_thoracic_yaw" joint="thoracic_yaw" kp="50" kv="8"/>
+    <position name="act_thoracic_pitch" joint="thoracic_pitch" kp="60" kv="9"/>
+    <position name="act_left_shoulder_pitch" joint="left_shoulder_pitch" kp="45" kv="8" forcerange="-100 100"/>
+    <position name="act_left_shoulder_roll" joint="left_shoulder_roll" kp="45" kv="8" forcerange="-100 100"/>
+    <position name="act_left_elbow" joint="left_elbow" kp="50" kv="8" forcerange="-80 80"/>
+    <position name="act_right_shoulder_pitch" joint="right_shoulder_pitch" kp="45" kv="8" forcerange="-100 100"/>
+    <position name="act_right_shoulder_roll" joint="right_shoulder_roll" kp="45" kv="8" forcerange="-100 100"/>
+    <position name="act_right_elbow" joint="right_elbow" kp="50" kv="8" forcerange="-80 80"/>
+    <position name="act_left_hip_pitch" joint="left_hip_pitch" kp="110" kv="14"/>
+    <position name="act_left_hip_roll" joint="left_hip_roll" kp="110" kv="14"/>
+    <position name="act_left_hip_yaw" joint="left_hip_yaw" kp="90" kv="12"/>
+    <position name="act_left_knee" joint="left_knee" kp="110" kv="14"/>
+    <position name="act_left_ankle" joint="left_ankle" kp="90" kv="12"/>
+    <position name="act_right_hip_pitch" joint="right_hip_pitch" kp="110" kv="14"/>
+    <position name="act_right_hip_roll" joint="right_hip_roll" kp="110" kv="14"/>
+    <position name="act_right_hip_yaw" joint="right_hip_yaw" kp="90" kv="12"/>
+    <position name="act_right_knee" joint="right_knee" kp="110" kv="14"/>
+    <position name="act_right_ankle" joint="right_ankle" kp="90" kv="12"/>
+  </actuator>
+</mujoco>

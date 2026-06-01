@@ -1,0 +1,5 @@
+[
+  {"id":"medium_001","seed":21,"phase":2,"max_turns":6,"balance_assist_strength":0.3},
+  {"id":"medium_002","seed":22,"phase":2,"max_turns":6,"balance_assist_strength":0.3},
+  {"id":"medium_003","seed":23,"phase":2,"max_turns":6,"balance_assist_strength":0.3}
+]

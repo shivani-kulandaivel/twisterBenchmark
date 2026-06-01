@@ -7,3 +7,5 @@
 # Do not list bench_common / mesocosm here — the CLI wheel (local) and the
 # sandbox image (cloud) already provide bench_common, fastapi, uvicorn, httpx,
 # and pydantic for adapter.py.
+mujoco>=3.0
+numpy

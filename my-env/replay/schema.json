@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TwisterReplay",
+  "type": "object",
+  "required": ["steps"],
+  "properties": {
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step", "observation", "action", "reward", "terminated", "info"],
+        "properties": {
+          "step": {"type": "integer"},
+          "observation": {"type": "object"},
+          "action": {"type": "object"},
+          "reward": {"type": "number"},
+          "terminated": {"type": "boolean"},
+          "info": {"type": "object"}
+        }
+      }
+    }
+  }
+}

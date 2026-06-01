@@ -1,0 +1,13 @@
+{
+  "agent": {
+    "survival_turns": 9.0,
+    "avg_decision_time_s": 0.00011302291186439106,
+    "reach_accuracy": 0.029458556039751338,
+    "balance_success_rate": 1.0,
+    "constraint_violations": 0.0,
+    "tokens_generated": 0.0,
+    "planning_depth": 0.0,
+    "action_quality": 24.766565630606728,
+    "total_score": 24.766565630606728
+  }
+}

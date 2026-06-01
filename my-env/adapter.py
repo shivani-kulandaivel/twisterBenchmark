@@ -9,7 +9,7 @@ Local dev:
 import argparse
 
 from bench_common.env_sdk import serve
-from env import MyEnv
+from env import TwisterEnv
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -17,5 +17,5 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
 
-    print(f"MyEnv adapter → http://{args.host}:{args.port}")
-    serve(MyEnv, host=args.host, port=args.port)
+    print(f"TwisterEnv adapter → http://{args.host}:{args.port}")
+    serve(TwisterEnv, host=args.host, port=args.port)

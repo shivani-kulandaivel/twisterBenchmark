@@ -1,0 +1,5 @@
+[
+  {"id":"easy_001","seed":11,"phase":1,"max_turns":3,"balance_assist_strength":0.5},
+  {"id":"easy_002","seed":12,"phase":1,"max_turns":3,"balance_assist_strength":0.5},
+  {"id":"easy_003","seed":13,"phase":2,"max_turns":3,"balance_assist_strength":0.5}
+]

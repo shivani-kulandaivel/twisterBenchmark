@@ -1,14 +1,14 @@
 name: Deploy showcase to GitHub Pages
 
-# Publishes my-env/showcase (the Twister replay viewer) as a static site.
+# Publishes showcase/ (the Twister replay viewer) as a static site.
 # Site URL after first successful run: https://<user>.github.io/<repo>/
-# Redeploy trigger: 1
+# Redeploy trigger: 2
 
 on:
   push:
     branches: [main]
     paths:
-      - "my-env/showcase/**"
+      - "showcase/**"
       - ".github/workflows/deploy-showcase.yml"
   workflow_dispatch:
 
@@ -36,7 +36,7 @@ jobs:
       - name: Upload showcase artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: my-env/showcase
+          path: showcase
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

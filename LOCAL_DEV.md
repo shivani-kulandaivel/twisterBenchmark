@@ -19,7 +19,7 @@ This includes `mesocosm run local`, `bench_common` (for `adapter.py`), and the H
 This benchmark imports MuJoCo, so install extra deps locally:
 
 ```powershell
-cd my-env
+cd twisterBenchmark   # repo root (benchanything.json lives here)
 pip install -r requirements.txt
 ```
 
@@ -73,7 +73,7 @@ Optional but recommended:
 $env:MESOCOSM_LOCAL = "1"
 # Windows: avoid Unicode errors in mesocosm CLI output
 $env:PYTHONUTF8 = "1"
-cd my-env
+cd twisterBenchmark   # repo root (benchanything.json lives here)
 mesocosm doctor --local
 ```
 
@@ -82,7 +82,7 @@ mesocosm doctor --local
 ### Terminal 1 — env adapter
 
 ```powershell
-cd my-env
+cd twisterBenchmark   # repo root (benchanything.json lives here)
 python adapter.py
 # Health check: http://localhost:8765/health
 ```
@@ -90,7 +90,7 @@ python adapter.py
 ### Terminal 2 — benchmark episodes
 
 ```powershell
-cd my-env
+cd twisterBenchmark   # repo root (benchanything.json lives here)
 mesocosm run local
 ```
 
@@ -112,7 +112,7 @@ mesocosm run local --model ollama/llama3.2
 Use the bundled system prompt so the model outputs valid joint JSON:
 
 ```powershell
-cd my-env
+cd twisterBenchmark   # repo root (benchanything.json lives here)
 $env:PYTHONUTF8 = "1"
 mesocosm run local `
   --model ollama/llama3.2 `
@@ -150,7 +150,7 @@ mesocosm run local --episodes 3 --max-tokens 1024 --system-prompt "Respond with 
 Verify the sim loads before running the full agent loop:
 
 ```powershell
-cd my-env
+cd twisterBenchmark   # repo root (benchanything.json lives here)
 python -c "from env import TwisterEnv; e=TwisterEnv(); o=e.reset(seed=42); print(o['command']['instruction']); r=e.step({'joint_targets':{'left_shoulder_pitch':45}}); print('reward', r.reward, 'upright', r.observation['upright'])"
 ```
 
@@ -178,7 +178,7 @@ Platform runs use cloud models on SWECC infrastructure. **Ollama is only for you
 | `model requires more system memory` | `llama3.2` needs ~2.3 GiB free RAM. Use a smaller model: `ollama pull llama3.2:1b` then `mesocosm run local --model ollama/llama3.2:1b`. Close other apps; MuJoCo also uses RAM while the adapter runs |
 | `UnicodeEncodeError` in mesocosm | Run `$env:PYTHONUTF8 = "1"` before `mesocosm run local` (Windows) |
 | Connection refused on 8765 | Start `python adapter.py` in Terminal 1 first |
-| `ModuleNotFoundError: mujoco` | Run `pip install -r requirements.txt` in `my-env` |
+| `ModuleNotFoundError: mujoco` | Run `pip install -r requirements.txt` in the repo root |
 | Model returns prose instead of JSON | Use `--system-prompt` from `system_prompt.txt`; try `--temperature 0.0` |
 | `ollama/llama3.2` not found | Run `ollama pull llama3.2` or pass `--model ollama/<your-model>` |
 

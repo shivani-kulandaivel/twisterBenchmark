@@ -63,46 +63,45 @@ The agent sends **target joint angles in degrees**. MuJoCo position actuators (P
 
 ```bash
 pip install swecc-mesocosm
-pip install -r my-env/requirements.txt
+pip install -r requirements.txt
 ```
 
 ## Local dev (Ollama)
 
-See **[`my-env/LOCAL_DEV.md`](my-env/LOCAL_DEV.md)** and the [Mesocosm local development wiki](https://wiki.swecc.org/Sweccathon/mesocosm/local-development).
+See **[`LOCAL_DEV.md`](LOCAL_DEV.md)** and the [Mesocosm local development wiki](https://wiki.swecc.org/Sweccathon/mesocosm/local-development).
 
 **One-time:** install [Ollama](https://ollama.com), then `ollama pull llama3.2`.
 
-**Terminal 1 — env server**
+**Terminal 1 — env server** (run from the repo root)
 
 ```powershell
-cd my-env
 pip install -r requirements.txt
 python adapter.py
 ```
 
-**Terminal 2 — run episodes**
+**Terminal 2 — run episodes** (run from the repo root)
 
 ```powershell
-cd my-env
 $env:PYTHONUTF8 = "1"
 mesocosm run local --model ollama/llama3.2 --episodes 3 --max-tokens 1024 --system-prompt (Get-Content system_prompt.txt -Raw)
 ```
 
 ## Project layout
 
+The env lives at the repo root so the platform finds `benchanything.json` there.
+
 ```
-my-env/
-├── env.py              # TwisterEnv (reset/step)
-├── adapter.py          # HTTP adapter
-├── benchanything.json  # Manifest + scoring
-├── sim/
-│   ├── humanoid.py     # MuJoCo wrapper
-│   ├── constants.py    # Joint schema
-│   └── mjcf/humanoid_twister.xml
-├── game/
-│   ├── twister.py      # Mat, spinner, validation
-│   └── tasks.py        # Phase 1 & 2 logic
-└── showcase/           # Replay export examples
+benchanything.json      # Manifest + scoring (at repo root)
+env.py                  # TwisterEnv (reset/step)
+adapter.py              # HTTP adapter
+sim/
+├── humanoid.py         # MuJoCo wrapper
+├── constants.py        # Joint schema
+└── mjcf/humanoid_twister.xml
+game/
+├── twister.py          # Mat, spinner, validation
+└── tasks.py            # Phase 1 & 2 logic
+showcase/               # Replay viewer (deployed to GitHub Pages)
 ```
 
 ## Scoring

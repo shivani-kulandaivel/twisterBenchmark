@@ -2,6 +2,7 @@ name: Deploy showcase to GitHub Pages
 
 # Publishes my-env/showcase (the Twister replay viewer) as a static site.
 # Site URL after first successful run: https://<user>.github.io/<repo>/
+# Redeploy trigger: 1
 
 on:
   push:

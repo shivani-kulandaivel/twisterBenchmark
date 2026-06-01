@@ -8,6 +8,7 @@ __pycache__/
 
 # Generated artifacts
 data/traces/
-showcase/frames/
-showcase/replay.json
 _alive*.txt
+
+# NOTE: showcase/replay.json and showcase/frames/ are intentionally committed
+# so the GitHub Pages showcase site has data to display.

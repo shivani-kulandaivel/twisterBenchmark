@@ -1,0 +1,41 @@
+name: Deploy showcase to GitHub Pages
+
+# Publishes my-env/showcase (the Twister replay viewer) as a static site.
+# Site URL after first successful run: https://<user>.github.io/<repo>/
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "my-env/showcase/**"
+      - ".github/workflows/deploy-showcase.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: Upload showcase artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: my-env/showcase
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

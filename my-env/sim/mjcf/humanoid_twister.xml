@@ -57,7 +57,7 @@
     <geom name="mat_r3_c4" type="cylinder" size="0.12 0.006" pos="0.525 0.525 0.006" rgba="0.15 0.35 0.85 1" contype="0" conaffinity="0"/>
     <geom name="mat_r3_c5" type="cylinder" size="0.12 0.006" pos="0.875 0.525 0.006" rgba="0.15 0.35 0.85 1" contype="0" conaffinity="0"/>
 
-    <camera name="showcase" pos="2.3 1.95 1.15" xyaxes="-0.75 0.66 0 -0.25 -0.28 0.93" fovy="42"/>
+    <camera name="showcase" pos="2.3 1.95 1.15" xyaxes="-0.6467 0.7628 0 -0.1725 -0.1462 0.9742" fovy="44"/>
 
     <body name="pelvis" pos="0 0 0.92">
       <freejoint name="root"/>

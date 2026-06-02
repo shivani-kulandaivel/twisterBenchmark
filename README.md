@@ -4,6 +4,8 @@ Benchmark for testing how well an AI can operate a human body in a physics simul
 
 Built on [Mesocosm / BenchAnything](https://github.com/swecc-io/mesocosm) — runs as an HTTP env that LLM agents call over `reset` / `step`.
 
+CLICK HERE FOR DEMO: https://shivani-kulandaivel.github.io/twisterBenchmark/
+
 ## What it tests
 
 - **Spatial reasoning** — mapping spinner commands to body configurations
